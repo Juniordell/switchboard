@@ -16,6 +16,18 @@ from switchboard_core.knowledge.build_install_dates import (
 from switchboard_core.knowledge.build_install_dates import (
     build_install_dates,
 )
+from switchboard_core.knowledge.callback_chain import (
+    ALL_CALLBACK_TAGS as ALL_CALLBACK_TAGS,
+)
+from switchboard_core.knowledge.callback_chain import (
+    INSTALL_CALLBACK_TAGS as INSTALL_CALLBACK_TAGS,
+)
+from switchboard_core.knowledge.callback_chain import (
+    SERVICE_CALLBACK_TAG as SERVICE_CALLBACK_TAG,
+)
+from switchboard_core.knowledge.callback_chain import (
+    find_callback_source as find_callback_source,
+)
 from switchboard_core.knowledge.job_address import job_canonical_id as job_canonical_id
 from switchboard_core.knowledge.job_address import (
     jobs_at_canonical_address as jobs_at_canonical_address,
@@ -68,10 +80,13 @@ def build_all(session: Session) -> dict[str, int]:
 
 
 __all__ = [
+    "ALL_CALLBACK_TAGS",
     "AMBIGUOUS_GAP",
     "CONFIDENCE_THRESHOLD",
+    "INSTALL_CALLBACK_TAGS",
     "INSTALL_DESCRIPTION_PREFIXES",
     "LABOR_WARRANTY_MONTHS",
+    "SERVICE_CALLBACK_TAG",
     "AddressCandidate",
     "Level3Result",
     "Level3Verdict",
@@ -87,6 +102,7 @@ __all__ = [
     "classify_note_warranty_term",
     "evaluate_level_3",
     "evaluate_warranty_status",
+    "find_callback_source",
     "job_canonical_id",
     "jobs_at_canonical_address",
     "resolve_address",
