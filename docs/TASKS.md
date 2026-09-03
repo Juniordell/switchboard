@@ -46,13 +46,22 @@ Work one at a time. Do not skip ahead. Each task ends with `ruff check` and
       to 3 candidates with scores and `canonical_id`, never `address_id`;
       `must_ask` on score < 0.55 or a < 0.05 gap to the runner-up. 3 of the 4
       null-address-id jobs resolve via their raw street; the 4th has no
-      matching `customer_addresses` row and is T2.2's problem. 54 tests,
+      matching `customer_addresses` row and stays permanently unreachable via
+      `resolve_address` — there is no address record to canonicalise from, so
+      no later task closes this, only `job_canonical_id` computed directly
+      from the job's own columns reaches it (T2.3a). 54 tests,
       including the hard requirement ("eighty nine harbor light shores" → 89
       Harborlight Shores Blvd W) and a real duplicate-id pair converging on
       one `canonical_id`.
-- [ ] T2.2 `visit_history` derived table keyed on `canonical_id`, returning
-      structured rows only — no generated prose. Aggregates the 0-to-4 invoices
-      a job may have.
+- [x] T2.2 `get_visit_history`, a query-time function keyed on `canonical_id`
+      (same shape as `resolve_address` and `evaluate_warranty_status`, and for
+      the same reason — no reduction to precompute, ~1.4 jobs per address on
+      average), returning structured rows only: job id, `job_number` (never
+      `invoice_number` — CLAUDE.md hard rule 8, joined only on `job_id`),
+      service date, techs, description, aggregated invoice numbers, balance,
+      and the job it was a callback from. Ordered most recent first. 9 tests,
+      including a fixture whose `job_number` and `invoice_numbers` are visibly
+      different values, proving the join never confuses them.
 - [x] T2.3a **Derived install date**: `knowledge.install_dates`, one row per
       canonical address, from jobs whose `description` starts with
       `System Installation`, `New System Installation` or `New Construction`
@@ -89,7 +98,15 @@ Work one at a time. Do not skip ahead. Each task ends with `ruff check` and
       total across the three new modules, all against real fixtures found by
       scanning the loaded database for a canonical address whose only
       warranty signal is the level under test.
-- [ ] T2.4 Callback chain linking, outstanding balances
+- [x] T2.4 `find_callback_source` (which job a callback-tagged job was about
+      — install-callback tags link to `knowledge.install_dates`'s job when
+      the address has one, else the most recent completed prior job at the
+      same address; measured against all 101 real callback-tagged jobs: 8 via
+      install, 53 via prior job, 40 with no findable candidate) and
+      `get_customer_balance` (`SUM(job.outstanding_balance)` per
+      `customer_id`, verified equal to summing `invoice.due_amount`
+      independently — no address canonicalisation needed, `customer_id` is
+      already a clean source id). 10 tests.
 - [ ] T2.5 Note chunking, embeddings, `tsvector`, RRF hybrid query. Every
       returned date is the job's service date, in a `job_service_date` field.
       Whether the dense leg is kept is decided by measurement in T4.2, not

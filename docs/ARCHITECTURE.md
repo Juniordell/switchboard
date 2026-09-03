@@ -16,7 +16,7 @@ typed in an attic, and only retrieval finds that.
 |---|---|---|
 | Records | Jobs, customers, addresses, employees, invoices, items — loaded verbatim from `data/` | Never directly |
 | Entities | Canonical addresses and customers, `pg_trgm` index, alias table | `resolve_address`, `resolve_customer` — return candidates + confidence, never a silent guess |
-| Knowledge | Derived at load: `visit_history`, `warranty_status`, `install_date`, balances, callback chains | Typed SQL tools, no model in the path |
+| Knowledge | `install_date` materialised at load (the one table here that reduces many candidates to one); `visit_history`, `warranty_status`, callback chains and balances computed at query time — see "Derived knowledge returns rows, not prose" below for why | Typed SQL tools, no model in the path |
 | Prose | One chunk per note, `vector` + `tsvector`, scoped to canonical address and job | `search_notes(entity_id, query)` — hybrid, RRF, entity filter required |
 
 Loaders are idempotent. Derived tables always trace back to a source row.
@@ -57,12 +57,12 @@ same street and zip appears as both "Key Biscayne" and "Miami Beach".
   (`job_a8edd70d8b7c`, 69 Plumeria Glen Drive) does not: no `customer_addresses`
   row carries that street at all, so it correctly resolves to nothing.
   Verified to agree with `address_alias` on all 1,992 jobs with zero
-  mismatches. Every derived table that needs "which address is this job at" —
-  `install_dates` today, `visit_history` and `warranty_status` from T2.2
-  onward — uses this, not a join on `address_id`.
+  mismatches. Every derived function that needs "which address is this job
+  at" — `install_dates`, `get_visit_history`, `evaluate_warranty_status`,
+  `find_callback_source` — uses this, not a join on `address_id`.
 - `resolve_address` returns `canonical_id`, never `address.id`.
-- `visit_history` and `warranty_status` will be keyed on `canonical_id` from
-  T2.2 onward.
+- `get_visit_history` and `evaluate_warranty_status` are both keyed on
+  `canonical_id`, as of T2.2 and T2.3b.
 
 Without this, "when were you last here" answers from half the history at 51
 addresses, and reports no error while doing it.
@@ -82,6 +82,16 @@ question. Cheap, current, and auditable against the rows it was given.
 Because a job may have up to 4 invoices and 456 jobs have none, invoice numbers
 and balances are aggregated per visit, and a visit with no invoice is a normal
 row, not a missing one.
+
+**`get_visit_history` is computed at query time, not a materialised table** —
+same shape as `resolve_address` and `evaluate_warranty_status`, and for the
+same reason: it keeps every job as its own row rather than reducing many
+candidates to one, so there is nothing to gain from precomputing it. A
+canonical address has 1.4-1.5 jobs on average; the join is trivial live.
+`find_callback_source` and `get_customer_balance` (T2.4) are the same shape.
+`install_dates` is the one exception, precomputed at load, because it *does*
+reduce: many candidate install jobs at an address down to the single most
+recent one.
 
 ## Retrieval
 
