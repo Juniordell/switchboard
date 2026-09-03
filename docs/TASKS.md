@@ -10,6 +10,14 @@ Work one at a time. Do not skip ahead. Each task ends with `ruff check` and
       migration. The job's source `invoice_number` field is modelled as
       `job_number`; `job_id` is the only jobs↔invoices join key. Address id is
       nullable. `street_line_2` normalises `null` and `""` to the same value.
+- [ ] T1.3a **Layer 0 guard** `test_no_job_invoice_number`: walks the
+      `packages/core` AST and fails if `invoice_number` appears on anything
+      job-shaped — a column on the jobs table, a Pydantic field on a job schema
+      or a tool result carrying one, a key in a job serialiser. The one
+      permitted occurrence is the `jobs.jsonl` parsing function, allow-listed
+      by qualified name. Asserts the inverse too: the `invoices` model still
+      carries `invoice_number`, so the guard cannot be passed by deleting the
+      concept. Runs on every commit; see `docs/HARNESS.md` Layer 0.
 - [ ] T1.4 Idempotent loaders for jobs, invoices, customers, employees
 - [ ] T1.5 `scripts/verify_load.py` asserting the measured shape in
       `docs/DATA.md`: 1,992 jobs · 6,954 notes · 1,700 invoices · 4,390 line
@@ -58,13 +66,21 @@ Work one at a time. Do not skip ahead. Each task ends with `ruff check` and
       takes an utterance, returns the tool calls requested. No audio, no
       LiveKit session, no agent class, no handoffs. This is what makes Layers 1
       and 4 runnable before Phase 5 exists.
-- [ ] T4.1 40 golden utterances in `evals/golden/tools.yaml`
+- [ ] T4.1 40 golden utterances in `evals/golden/tools.yaml`, including the
+      **number-provenance case**: the caller asks for the number of a service
+      and the assertion is that every number returned traces to a row whose
+      `job_id` is the resolved job's — job number equals `job.job_number`,
+      invoice number is in that job's invoice set, anything else fails.
+      Adversarial fixtures, both real: `job_1da1e743…` (job number 3743, where
+      invoice 3743 is Seth Flynn's at another address) and
+      `job_28e341b2…` (job number 3611, where invoice 3611 is Charlene
+      Whitaker's). See `docs/HARNESS.md`.
 - [ ] T4.2 Runner asserting tool sequence and argument shape against T4.0.
       Also settles the dense-vs-lexical question for `search_notes`.
 - [ ] T4.3 `evals/baseline.json` measured from the T3.1 `duration_ms` log, per
       tool class, plus a GitHub Actions workflow that fails on regression.
-      Layer 1 and Layer 4 on every commit; Layer 4 reads the log the run it
-      belongs to produced.
+      Layers 0 and 1 and Layer 4 on every commit; Layer 4 reads the log the
+      run it belongs to produced.
 
 ## Phase 5 — Voice
 - [ ] T5.1 Single LiveKit agent, cascade pipeline, tools bound, dialable
