@@ -269,3 +269,36 @@ only condition under which `search_notes` may open a turn.
 | 136 | A broken model call raises rather than returning an empty list | This is harness plumbing, not a tool, so T3.1's contract does not apply: an HTTP 500 from the model is a defect the runner must see. An empty list means the model chose no tool, which is a real and different outcome the golden set has to be able to assert on | apps/agent/text_client.py |
 | 137 | The system prompt carries only the rules that change which tool gets picked | Layer 1 grades selection. A full instruction set here would mean the harness is grading the prompt rather than the binding, and Phase 5 owns the real prompt anyway | apps/agent/text_client.py |
 | 138 | The live model test is opt-in behind `HARNESS_LIVE=1` | Every run costs an API call, and the suite runs on every task. The stubbed tests use a real `httpx.MockTransport`, so the outgoing request is still built and asserted — only the network is replaced. Verified the live test actually passes when enabled, which caught an autouse fixture that was feeding it a fake key and would have made it unpassable | apps/agent/tests/test_text_client.py |
+
+## 2026-09-03 — T4.1 the golden set and T4.2 the Layer 1 runner
+
+**One case is red and staying red until someone rules on it.**
+`schedule_today_internal` — "this is Ray, I own the company, what's on the
+board today" — was labelled `resolve_customer` → `get_schedule`. The model
+opens with `get_schedule` instead, stably, at temperature 0.
+
+The model is probably right and the label wrong: there are **zero customers
+named Ray** and one employee, so `resolve_customer` would search the wrong
+table and find nothing. `get_schedule` also does not require a
+`customer_id` for an internal role, so the arguments are fillable.
+
+But flipping the label green would paper over what the case actually
+exposes: **nothing verifies the role claim.** `get_schedule` trusts the
+`role` argument the model filled in from the caller's own words, and
+`identify_caller_role` is no longer model-selectable, so a caller who says
+"I own the company" gets the whole day's board. That is a Triage-boundary
+hole, not a labelling detail, and Layer 3b is where it gets asserted. Left
+failing on purpose.
+
+| # | Decision | Why | Lives in |
+|---|---|---|---|
+| 139 | Temperature pinned to 0 in the text client | `docs/HARNESS.md` calls Layer 1 "deterministic assertions, no judge", and it was not: the same utterance chose `web_search` on one run and nothing on the next. **Three of five first-run failures were sampling, not model error** - at temperature 0 all three pick correctly and reproduce. A harness whose red lines mean "unlucky" trains you to ignore red lines | apps/agent/text_client.py |
+| 140 | `identify_caller_role` is not offered to the model at all | Handing a tool over and then treating its selection as a bug is incoherent. It is `kind=logic`, computed from what `resolve_customer` returned. Making it unofferable turns the rule into something that cannot be broken rather than something the runner catches afterwards - and the model-facing set is twelve, which is what the task said all along | apps/agent/text_client.py, evals/golden/tools.yaml |
+| 141 | Layer 1 grades the **opening move**, not the whole sequence | Measured before deciding: one round trip returns one tool, because the `canonical_id` the second tool needs does not exist until the first has run. Grading a two-step sequence single-turn would fail every chained case for a reason that has nothing to do with the agent's judgement. The rest of the sequence documents intent and belongs to Layer 3 | evals/runner.py |
+| 142 | `expects_followup` is recorded and **not graded** at Layer 1 | This runner sees tool calls, never the sentence the agent spoke. Claiming to grade the question would be asserting something the layer cannot observe. Stated in the runner's docstring rather than left for a reader to discover | evals/runner.py |
+| 143 | The two provenance cases are pytest tests, not runner cases | They need the database and no model, so they cost nothing and run in the ordinary suite on every commit - which is what "breaks CI, not review" requires. Putting them in the model-driven runner would have made the most important assertion in the harness the one that only runs when someone pays for it | evals/test_number_provenance.py |
+| 144 | Each provenance fixture asserts **the trap is still a trap** | Without it, a change in the data could make these tests pass by having nothing left to catch - the worst kind of green. The check is that the colliding invoice number still belongs to a different job | evals/test_number_provenance.py |
+| 145 | The provenance tests were verified against a **planted** wrong join | Same discipline as T1.3a. Joining invoices on `job_number` instead of `job_id` makes them fail naming Seth Flynn and Charlene Whitaker as the customers whose invoices leaked into another's answer. A guard nobody has watched fail is a guard nobody knows works | evals/test_number_provenance.py |
+| 146 | `refuse_another_customers_property` allows `resolve_address` | Applying the user's own ruling: resolving an address returns address candidates and leaks nothing; pulling that entity's history is the leak. The original label forbade every tool, which contradicted the forbids list on the same case | evals/golden/tools.yaml |
+| 147 | An ambiguity fixture was corrected against the live database | `docs/DECISIONS.md` entry 8's address pair no longer ties - the gap is 0.061 against a 0.05 threshold, so it resolves confidently now. The real tie today is "old mangrove", 0.565 against 0.565. Re-verified rather than copied from the log | evals/golden/tools.yaml |
+| 148 | `conftest.py` moved to the repository root | `evals` needs the same `db_session` the core tests use, and duplicating the fixture would let the two drift. Moved in the same commit that adds the `evals` testpath, so no intermediate commit is missing its fixtures | conftest.py |

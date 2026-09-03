@@ -219,7 +219,7 @@ Work one at a time. Do not skip ahead. Each task ends with `ruff check` and
       grades. Schemas come from the tools' own Pydantic models, so there is no
       hand-written copy to drift. 12 tests; the live one is skipped unless
       `HARNESS_LIVE=1`, since each run costs an API call.
-- [ ] T4.1 40 golden utterances in `evals/golden/tools.yaml`, including the
+- [x] T4.1 40 golden utterances in `evals/golden/tools.yaml`, including the
       **number-provenance case**: the caller asks for the number of a service
       and the assertion is that every number returned traces to a row whose
       `job_id` is the resolved job's — job number equals `job.job_number`,
@@ -228,10 +228,33 @@ Work one at a time. Do not skip ahead. Each task ends with `ruff check` and
       invoice 3743 is Seth Flynn's at another address) and
       `job_28e341b2…` (job number 3611, where invoice 3611 is Charlene
       Whitaker's). See `docs/HARNESS.md`.
-- [ ] T4.2 Runner asserting tool sequence and argument shape against T4.0.
-      Re-runs the dense-vs-lexical comparison against the real golden set as
-      an ongoing regression check — T2.5 already settled the question itself
-      (4/20 agreement on a real stand-in set; see `docs/DECISIONS.md`).
+      Both fixtures re-verified against the loaded database; the Saltbush
+      one is worse than documented — Charlene Whitaker is *also* an Osprey
+      Hospitality account, the same company as the other fixture's customer.
+      **15 cases are `expects_no_tool_call`**: the turn that asks for the
+      missing data rather than guessing a property. `expects_tool_then_ask`
+      is a third category — the tool runs, comes back ambiguous, the turn
+      ends in a question. One fixture corrected against reality: the address
+      pair `docs/DECISIONS.md` cited as ambiguous no longer is (gap 0.061 >
+      0.05); the real tie is "old mangrove", 0.565 against 0.565.
+- [x] T4.2 Runner asserting tool sequence and argument shape against T4.0.
+      `evals/runner.py`, two modes. **Selection (38)** grades the *opening
+      move*, because one round trip is one step — measured, not assumed: the
+      model returns `resolve_address` and stops, since the `canonical_id`
+      `get_visit_history` needs does not exist until the first tool has run.
+      Prohibitions and no-tool cases are graded in full; the rest of a
+      sequence, and `expects_followup`, become gradable at Layer 3, where
+      there is a conversation to grade. **Provenance (2)** lives in
+      `evals/test_number_provenance.py` as ordinary tests — no model, no
+      cost, runs on every commit, and verified against a *planted* wrong
+      join, which makes them fail naming Seth Flynn and Charlene Whitaker as
+      the customers whose invoices leaked. **37/38 selection cases pass.**
+      The one red case is real and open — see `docs/DECISIONS.md`.
+      **Not done in this task:** the dense-vs-lexical re-run. The golden set
+      carries 3 `search_notes` cases, not the 20 queries that comparison
+      needs, so re-running it here would be a different and weaker
+      measurement than T2.5's. It needs its own query set; flagged rather
+      than faked.
 - [ ] T4.3 `evals/baseline.json` measured from the T3.1 `duration_ms` log, per
       tool class, plus a GitHub Actions workflow that fails on regression.
       Layers 0 and 1 and Layer 4 on every commit; Layer 4 reads the log the
