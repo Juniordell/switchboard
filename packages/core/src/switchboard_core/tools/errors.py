@@ -32,3 +32,12 @@ class RetrievalUnavailableError(ToolDomainError):
     result rather than a traceback - the failure is still loud in the call
     log as `ok: false`, and still fails a test that asserts a real search.
     """
+
+
+class JobNotFoundError(ToolDomainError):
+    """No job with that id, in `source.jobs` or in the write overlay.
+
+    A caller-supplied id that resolves to nothing is a domain outcome: the
+    agent misheard a number, or the job belongs to a different customer.
+    Not a defect, and not something to write against blindly.
+    """
