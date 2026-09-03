@@ -44,6 +44,15 @@ from switchboard_core.knowledge.warranty_notes import (
 from switchboard_core.knowledge.warranty_notes import (
     classify_note_warranty_term as classify_note_warranty_term,
 )
+from switchboard_core.knowledge.warranty_status import (
+    WarrantyConfidence,
+    WarrantyCoverage,
+    WarrantyEvidence,
+    WarrantyStatusResult,
+)
+from switchboard_core.knowledge.warranty_status import (
+    evaluate_warranty_status as evaluate_warranty_status,
+)
 
 
 def build_all(session: Session) -> dict[str, int]:
@@ -68,11 +77,16 @@ __all__ = [
     "Level3Verdict",
     "NoteWarrantyClaim",
     "ResolveAddressResult",
+    "WarrantyConfidence",
+    "WarrantyCoverage",
+    "WarrantyEvidence",
+    "WarrantyStatusResult",
     "build_all",
     "build_canonical_addresses",
     "build_install_dates",
     "classify_note_warranty_term",
     "evaluate_level_3",
+    "evaluate_warranty_status",
     "job_canonical_id",
     "jobs_at_canonical_address",
     "resolve_address",
