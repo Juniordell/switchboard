@@ -111,6 +111,20 @@ Work one at a time. Do not skip ahead. Each task ends with `ruff check` and
       returned date is the job's service date, in a `job_service_date` field.
       Whether the dense leg is kept is decided by measurement in T4.2, not
       assumed — see `docs/ARCHITECTURE.md`.
+      **Built and tested; not ticked — the measurement itself hasn't run.**
+      `prose.note_chunks` (`chunk_notes`, free, part of every load — 6,954
+      rows, one per note, no split), `content_tsv` a Postgres-generated
+      column, `embedding` nullable and filled separately (`embed_pending`,
+      paid, `python -m switchboard_core.prose`), `search_notes`/
+      `rank_candidates` (the RRF query, one SQL statement, `entity_id`
+      required and positional — no default, not `Optional`). RRF math
+      verified exact against the documented `1/(60+rank)` formula using
+      synthetic orthogonal vectors, not live embeddings. **Blocked on a live
+      `OPENAI_API_KEY`**: `scripts/prose_measurements.py` (p95 latency,
+      hybrid-vs-`ts_rank_cd` comparison over 20 real entity-scoped queries)
+      is written, dry-verified against all 20 fixtures, and refuses to run
+      against an unembedded database — no number has been fabricated in its
+      place. See `docs/DECISIONS.md`.
 
 ## Phase 3 — Tools
 - [ ] T3.1 Tool contract base: Pydantic in/out, logging decorator with
