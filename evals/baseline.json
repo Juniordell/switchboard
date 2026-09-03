@@ -1,0 +1,58 @@
+{
+  "layer1": {
+    "pass_rate": 1.0,
+    "passed": 37,
+    "graded": 37,
+    "failed": [],
+    "intentional_red": {
+      "role_claim_unverified": "layer_3b"
+    },
+    "provenance_cases": [
+      "provenance_allamanda",
+      "provenance_saltbush"
+    ]
+  },
+  "measured_at": "2026-09-03T17:15:21.370831+00:00",
+  "layer4": {
+    "SQL": {
+      "calls": 66,
+      "measured_on": "duration_ms",
+      "p50_ms": 1.532,
+      "p95_ms": 9.868,
+      "max_ms": 32.651,
+      "budget_ms": 40
+    },
+    "hybrid": {
+      "calls": 13,
+      "measured_on": "postgres_ms",
+      "p50_ms": 1.425,
+      "p95_ms": 2.786,
+      "max_ms": 3.1,
+      "budget_ms": 1300
+    },
+    "logic": {
+      "calls": 14,
+      "measured_on": "duration_ms",
+      "p50_ms": 0.028,
+      "p95_ms": 0.306,
+      "max_ms": 0.784,
+      "budget_ms": null
+    },
+    "web": {
+      "calls": 3,
+      "measured_on": "duration_ms",
+      "p50_ms": 0.16,
+      "p95_ms": 0.171,
+      "max_ms": 0.172,
+      "budget_ms": 1500
+    },
+    "write": {
+      "calls": 34,
+      "measured_on": "duration_ms",
+      "p50_ms": 2.426,
+      "p95_ms": 3.879,
+      "max_ms": 7.394,
+      "budget_ms": null
+    }
+  }
+}
