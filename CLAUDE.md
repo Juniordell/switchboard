@@ -2,6 +2,7 @@
 
 Take-home for Kebra. 48 hours. Read docs/SCOPE.md, docs/ARCHITECTURE.md,
 docs/DATA.md, docs/AGENTS.md and docs/HARNESS.md before proposing anything.
+docs/DECISIONS.md records why past judgement calls went the way they did.
 
 ## Hard rules
 
@@ -51,4 +52,10 @@ Langfuse over OpenTelemetry.
 - Never mix two scopes in one commit. If you did, it was two commits.
 - Never commit .env or data/. Never commit to main; we work on phase branches.
 - If a spec is wrong or ambiguous, say so instead of guessing.
+- Every decision you take without being told to take it goes in
+  docs/DECISIONS.md: one line, with the reason and where the decision lives.
+  Instructed decisions do not; the commit records those. Mark with "override"
+  anything that contradicts a number or rule someone else supplied. The test
+  is whether a reviewer asking "why is this here and not there" six weeks from
+  now can read the answer instead of reconstructing it.
 - Prefer boring, readable code. This repo is read by a reviewer.
