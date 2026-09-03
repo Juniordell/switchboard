@@ -28,6 +28,13 @@ from switchboard_core.knowledge.resolve_address import (
 from switchboard_core.knowledge.resolve_address import (
     resolve_address as resolve_address,
 )
+from switchboard_core.knowledge.warranty_level_3 import (
+    LABOR_WARRANTY_MONTHS as LABOR_WARRANTY_MONTHS,
+)
+from switchboard_core.knowledge.warranty_level_3 import Level3Result, Level3Verdict
+from switchboard_core.knowledge.warranty_level_3 import (
+    evaluate_level_3 as evaluate_level_3,
+)
 
 
 def build_all(session: Session) -> dict[str, int]:
@@ -46,11 +53,15 @@ __all__ = [
     "AMBIGUOUS_GAP",
     "CONFIDENCE_THRESHOLD",
     "INSTALL_DESCRIPTION_PREFIXES",
+    "LABOR_WARRANTY_MONTHS",
     "AddressCandidate",
+    "Level3Result",
+    "Level3Verdict",
     "ResolveAddressResult",
     "build_all",
     "build_canonical_addresses",
     "build_install_dates",
+    "evaluate_level_3",
     "job_canonical_id",
     "resolve_address",
 ]
