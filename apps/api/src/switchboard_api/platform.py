@@ -16,12 +16,13 @@ reason.
 
 import asyncio
 import contextlib
+import datetime
 import json
 import logging
 from typing import Annotated, Any
 
 import psycopg
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy import text
@@ -29,6 +30,8 @@ from sqlalchemy.orm import Session
 
 from switchboard_api.tools import get_session
 from switchboard_core.db.session import database_url
+from switchboard_core.knowledge.job_address import job_canonical_id
+from switchboard_core.knowledge.warranty_status import evaluate_warranty_status
 
 router = APIRouter(tags=["platform"])
 logger = logging.getLogger(__name__)
@@ -157,6 +160,206 @@ def _psycopg_url() -> str:
     (`postgresql+psycopg://`), which psycopg itself cannot parse. The
     listener talks to Postgres directly, so it needs the plain URL."""
     return database_url().replace("postgresql+psycopg://", "postgresql://", 1)
+
+
+@router.get("/today")
+def today(
+    session: SessionDep, on: str | None = None, limit: LimitQuery = MAX_LIMIT
+) -> Page:
+    """One day's scheduled work, with the tech on each job.
+
+    Grouping by tech is the screen's job, not the query's - an office
+    manager wants to see the unassigned ones too, and a GROUP BY would hide
+    them. `docs/SCOPE.md`'s stale rule applies: a scheduled job whose start
+    has passed is abandoned work, not today's.
+    """
+    return _page(
+        session,
+        """
+        WITH effective AS (
+            SELECT j.id AS job_id, j.job_number, j.customer_id,
+                   COALESCE(r.scheduled_start, j.scheduled_start) AS scheduled_start,
+                   COALESCE(j.arrival_window, 0) AS arrival_window,
+                   j.work_status, j.description,
+                   trim(both ' ' from COALESCE(j.address_street, '') || ' ' ||
+                        COALESCE(j.address_street_line_2, '')) AS display_address,
+                   (SELECT array_agg(e.first_name || ' ' || e.last_name
+                                     ORDER BY je.position)
+                      FROM source.job_employees je
+                      JOIN source.employees e ON e.id = je.employee_id
+                     WHERE je.job_id = j.id) AS techs,
+                   false AS agent_booked
+            FROM source.jobs j
+            LEFT JOIN ops.job_reschedules r ON r.job_id = j.id
+            WHERE COALESCE(r.scheduled_start, j.scheduled_start) IS NOT NULL
+            UNION ALL
+            SELECT b.job_id, NULL, b.customer_id,
+                   COALESCE(r.scheduled_start, b.scheduled_start),
+                   b.arrival_window, b.work_status, b.description,
+                   b.display_address,
+                   CASE WHEN b.tech_name IS NULL THEN NULL
+                        ELSE ARRAY[b.tech_name] END,
+                   true
+            FROM ops.booked_jobs b
+            LEFT JOIN ops.job_reschedules r ON r.job_id = b.job_id
+        )
+        SELECT * FROM effective
+        WHERE scheduled_start >= CAST(COALESCE(:on, CURRENT_DATE::text) AS date)
+          AND scheduled_start <  CAST(COALESCE(:on, CURRENT_DATE::text) AS date)
+                                 + INTERVAL '1 day'
+        ORDER BY scheduled_start, job_id
+        LIMIT :limit
+        """,
+        on=on,
+        limit=limit,
+    )
+
+
+@router.get("/calls/{call_id}")
+def call_detail(call_id: str, session: SessionDep) -> dict[str, Any]:
+    """One call: what was said, and what the agent did, in one timeline.
+
+    The two are returned separately with their own ordering keys rather
+    than pre-merged, because a turn and the tool calls it triggered share a
+    timestamp and the screen is what decides how to show that.
+    """
+    turns = (
+        session.execute(
+            text(
+                "SELECT seq, role, text, agent, created_at FROM ops.transcript_turns "
+                "WHERE call_id = :c ORDER BY seq"
+            ),
+            {"c": call_id},
+        )
+        .mappings()
+        .all()
+    )
+    tools = (
+        session.execute(
+            text(
+                "SELECT id, agent, tool, args, duration_ms, result_rows, ok, timings, "
+                "created_at FROM ops.tool_calls WHERE call_id = :c ORDER BY created_at"
+            ),
+            {"c": call_id},
+        )
+        .mappings()
+        .all()
+    )
+    call = (
+        session.execute(
+            text(
+                "SELECT call_id, caller, started_at, ended_at, last_agent "
+                "FROM ops.calls WHERE call_id = :c"
+            ),
+            {"c": call_id},
+        )
+        .mappings()
+        .first()
+    )
+
+    return {
+        "call": dict(call) if call else {"call_id": call_id},
+        "turns": [dict(t) for t in turns],
+        "tool_calls": [dict(t) for t in tools],
+    }
+
+
+@router.get("/jobs/{job_id}")
+def job_detail(job_id: str, session: SessionDep) -> dict[str, Any]:
+    """One job: the row, its notes, and what the warranty rule says.
+
+    The warranty verdict carries its level and basis, never a bare yes/no -
+    `docs/AGENTS.md` requires that wherever it is shown, not only where it
+    is spoken.
+    """
+    job = (
+        session.execute(
+            text(
+                """
+            SELECT j.id AS job_id, j.job_number, j.customer_id, j.work_status,
+                   j.description, j.scheduled_start, j.completed_at,
+                   j.outstanding_balance,
+                   trim(both ' ' from COALESCE(j.address_street, '') || ' ' ||
+                        COALESCE(j.address_street_line_2, '')) AS display_address,
+                   j.address_zip, j.address_street, j.address_street_line_2
+            FROM source.jobs j WHERE j.id = :j
+            """
+            ),
+            {"j": job_id},
+        )
+        .mappings()
+        .first()
+    )
+
+    if job is None:
+        booked = (
+            session.execute(
+                text(
+                    "SELECT job_id, NULL AS job_number, customer_id, work_status, "
+                    "description, scheduled_start, NULL AS completed_at, "
+                    "0 AS outstanding_balance, display_address "
+                    "FROM ops.booked_jobs WHERE job_id = :j"
+                ),
+                {"j": job_id},
+            )
+            .mappings()
+            .first()
+        )
+        if booked is None:
+            raise HTTPException(status_code=404, detail=f"no job {job_id!r}")
+        return {"job": dict(booked), "notes": [], "warranty": None, "invoices": []}
+
+    notes = (
+        session.execute(
+            text("SELECT id, content FROM source.notes WHERE job_id = :j ORDER BY id"),
+            {"j": job_id},
+        )
+        .mappings()
+        .all()
+    )
+    agent_notes = (
+        session.execute(
+            text(
+                "SELECT note_id AS id, content, call_id, created_at "
+                "FROM ops.agent_notes WHERE job_id = :j ORDER BY created_at"
+            ),
+            {"j": job_id},
+        )
+        .mappings()
+        .all()
+    )
+    invoices = (
+        session.execute(
+            text(
+                "SELECT invoice_number, due_amount, status FROM source.invoices "
+                "WHERE job_id = :j ORDER BY invoice_number"
+            ),
+            {"j": job_id},
+        )
+        .mappings()
+        .all()
+    )
+
+    canonical_id = job_canonical_id(
+        job["address_street"], job["address_street_line_2"], job["address_zip"]
+    )
+    warranty = None
+    if canonical_id:
+        verdict = evaluate_warranty_status(
+            session,
+            canonical_id,
+            as_of=datetime.datetime.now(datetime.UTC),
+        )
+        warranty = verdict.model_dump(mode="json")
+
+    return {
+        "job": {k: v for k, v in job.items() if not k.startswith("address_")}
+        | {"display_address": job["display_address"], "canonical_id": canonical_id},
+        "notes": [dict(n) for n in notes],
+        "agent_notes": [dict(n) for n in agent_notes],
+        "invoices": [dict(i) for i in invoices],
+        "warranty": warranty,
+    }
 
 
 async def _listen() -> "asyncio.Queue[str]":
