@@ -9,10 +9,28 @@ the `.csv` mirrors. The mirrors are exact (`usd == cents / 100` on every row);
 they are for reading, not for loading. They sit in `data/*.csv`, not in
 `data/csv/` as `data/README.md` claims.
 
-`data/README.md` ships with the dataset and is wrong in two places: it says the
-CSVs are in `csv/`, and it says the calendar runs "through the end of the year"
-when the last scheduled job is 2026-09-15. Where it disagrees with this file,
-this file was measured.
+### `data/README.md` is wrong in three places
+
+It ships with the dataset and is not authoritative. **Where it disagrees with
+the files, the files win**, and the divergence is recorded here as a trap.
+
+| README says | The files say |
+|---|---|
+| CSVs are in `csv/` | They are in `data/*.csv`, flat |
+| The calendar runs "through the end of the year" | The last scheduled job is 2026-09-15 |
+| `taxes`, `discounts`, `payments` are "amounts only" | True of `discounts`. **`payments` carries eight fields**: `id`, `status`, `payment_method`, `amount`, `note`, `paid_at`, `category`, `surcharge_fee_amount` |
+
+The payments one is the trap that costs something. A loader written from the
+README would keep `amount` and silently drop the payment method, the surcharge
+and the paid date — and "how did they pay" is a question a caller asks. All
+eight are loaded; see `source.invoice_payments`.
+
+`invoices[].taxes` is empty across all 1,700 invoices. It is still modelled, on
+the general rule for the source layer: **no field from the `.jsonl` is dropped,
+including fields that are empty in this export.** A loader that skips an
+always-empty array keeps skipping it when a later export fills it. Its column
+shape is inferred from `discounts`, the only other amount-only array, and that
+inference is written down in the model rather than assumed.
 
 ## Measured shape
 
