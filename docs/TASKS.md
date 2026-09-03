@@ -127,12 +127,82 @@ Work one at a time. Do not skip ahead. Each task ends with `ruff check` and
       reason. See `docs/DECISIONS.md`.
 
 ## Phase 3 — Tools
-- [ ] T3.1 Tool contract base: Pydantic in/out, logging decorator with
+- [x] T3.1 Tool contract base: Pydantic in/out, logging decorator with
       `duration_ms`, typed errors. This log is the latency baseline source.
-- [ ] T3.2 All read tools
-- [ ] T3.3 All write tools with idempotency and audit rows
-- [ ] T3.4 `web_search`
-- [ ] T3.5 FastAPI exposure of every tool + `scripts/smoke_tools.sh`
+      `tools/call_log.py`: `log_tool_call` logs hard rule 5's seven fields as
+      one JSON line per call, failures included, then re-raises — deciding
+      what the caller sees is not the logger's job. `duration_ms` is the
+      total and is never the only timing available: a result overriding
+      `timings()` gets its own breakdown merged into the same record
+      (`search_notes` will report `embedding_ms` and `postgres_ms`, since
+      T2.5 measured 463 ms of OpenAI against 2-5 ms of Postgres and Layer 4
+      must assert those apart). `tools/contract.py`: `ToolResult` (with
+      `result_rows()`/`timings()` hooks), `ToolError`, `ToolDomainError`, and
+      `tool_call`, which catches **only** `ToolDomainError` — a
+      `ValidationError` or `KeyError` propagates, because a polite error
+      result hiding a defect is worse than a traceback. `call_id` is
+      keyword-only with no default. 22 tests; Phase 2's bare `ValueError`s
+      are bridged in T3.2, pinned by a test as a decision, not an accident.
+- [x] T3.2 All read tools — the nine read entries in `docs/AGENTS.md`, in
+      `switchboard_core/tools/`, each `@tool_call`-wrapped with a Pydantic
+      request and a `ToolResult`. `READ_TOOLS` keys them by the name T4.0
+      binds. Five wrap Phase 2 (`resolve_address`, `get_visit_history`,
+      `get_warranty_status`, `get_customer_balance`, `search_notes`);
+      **four did not exist and are new logic**: `resolve_customer`,
+      `identify_caller_role`, `get_schedule`, `find_availability`.
+      Carries the error bridge T3.1 deferred (`tools/errors.py`).
+      `search_notes` now reports `embedding_ms` and `postgres_ms` beside
+      the total, via `search_notes_timed`. Three findings worth the
+      reviewer's time: trigram similarity measures length, not meaning, so
+      "Lighthouse" scoring 1.0 against a customer of that exact name and
+      0.48 against "Lighthouse Hospitality" is an **ask**, not a decision
+      (two customers are also both named "Starfish Hospitality");
+      `find_availability` returns one row per window rather than one per
+      free tech, since 15 names for the same 10:00 fills the limit with a
+      single option; and a homeowner or property manager cannot even
+      construct a `get_schedule` request without a resolved `customer_id`.
+      No trigram index for `resolve_customer` and no migration: 732
+      customers is a sub-millisecond scan. 76 tests.
+- [x] T3.3 All write tools with idempotency and audit rows — `book_job`,
+      `move_job`, `add_note`, all Dispatch, in a new **`ops` schema**.
+      Writing into `source` was never an option: `verify_load.py` asserts
+      1,992 jobs and 6,954 notes on every task, so the first booking would
+      have failed the gate. Writes are an overlay and `get_schedule` unions
+      them, so a caller is told about the appointment they just made.
+      `ops.write_audit.idempotency_key` is `UNIQUE` — the constraint *is*
+      the retry guard, since a lookup first is a race two retries both win —
+      and row ids are derived from the key, making the primary key a second
+      guard. A `NOTIFY` on `switchboard_writes` fires from a **trigger**,
+      not the tools, so a write cannot forget to announce itself and a
+      rolled-back one announces nothing (T6.2 consumes it). Spoken
+      confirmation is a required non-empty field holding the caller's own
+      words. **override:** the key is `call_id + slot + address`, not the
+      spec's `call_id + slot` — one call booking two buildings into the same
+      window is two appointments. An agent booking carries **no job number**;
+      the field service system assigns those. Hard rule 4 is a guard test.
+      46 tests, including a real committed `NOTIFY` delivery.
+      `transfer_to_human` is `control`, not `write` — T5.4.
+- [x] T3.4 `web_search` — Tavily over `httpx`, one POST, no SDK and no new
+      dependency. **Always returns the source:** `url` is a required field
+      and a result without one is dropped rather than passed on. An
+      unreachable or unconfigured Tavily is `WebSearchUnavailableError`,
+      the same judgement as `RetrievalUnavailableError`. Tests drive a real
+      `httpx.MockTransport`, so the outgoing URL, bearer header and body are
+      asserted and only the network is stubbed. **Not verified against live
+      Tavily: `TAVILY_API_KEY` is empty in `.env`.**
+- [x] T3.5 FastAPI exposure of every tool + `scripts/smoke_tools.sh`.
+      `POST /tools/{name}` takes the tool's **own** Pydantic request as the
+      body, so the schema an agent binds and the schema the API accepts are
+      one object; `GET /tools` publishes all 13 schemas — the surface T4.0
+      binds. Dispatch is by signature, not a hand-kept table: declaring
+      `session` gets one, declaring `as_of` gets the server clock,
+      `identify_caller_role` declares neither and gets neither. `call_id` is
+      a required header; `X-As-Of` makes a run deterministic. Responses
+      carry `ok`, mirroring the call log — a `ToolError` is 200 and a
+      malformed body is 422. `smoke_tools.sh` starts its own uvicorn, drives
+      all 13 with curl, checks the audit trail, cleans up its own committed
+      rows: **15 passed, 0 failed, 1 skipped** (`web_search`, no key). 15
+      HTTP tests alongside it.
 
 ## Phase 4 — Harness v1 (before the agent)
 - [ ] T4.0 Minimal text tool client: binds the Pydantic tool schemas to a model,

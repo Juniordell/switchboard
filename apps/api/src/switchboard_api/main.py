@@ -1,16 +1,17 @@
 """Application entrypoint.
 
-Tool endpoints arrive at T3.5 and the platform endpoints at T6.1. What exists
-now is a health check, so that the image, the compose service and the
-dependency on packages/core are all real rather than asserted.
+Every tool is exposed by `switchboard_api.tools` (T3.5). The platform
+endpoints - calls, tool_calls, jobs, review_queue - arrive at T6.1.
 """
 
 from fastapi import FastAPI
 from pydantic import BaseModel
 
 import switchboard_core
+from switchboard_api import tools
 
 app = FastAPI(title="Switchboard API", version=switchboard_core.__version__)
+app.include_router(tools.router)
 
 
 class Health(BaseModel):

@@ -15,6 +15,16 @@ are three schemas for four layers):
     the path. Created empty in T1.3 so the boundary exists from the first
     migration rather than appearing later; T2 fills it.
 
+``ops``
+    The write side. Nothing the agent writes goes into ``source``: that
+    schema mirrors ``data/`` row for row, ``scripts/verify_load.py`` asserts
+    its exact counts on every task, and CLAUDE.md hard rule 1 freezes the
+    files behind it. A booking written into ``source.jobs`` would be a row
+    with no origin and would fail the load verification on the spot. So
+    agent writes land here as an overlay - bookings, reschedules, notes -
+    plus the audit row every one of them emits. Read paths union the two.
+    Added in T3.3.
+
 ``prose``
     Prose. One row per note, ``vector`` + ``tsvector``, reached only through
     ``search_notes(entity_id, query)`` with a resolved entity id - never an
@@ -23,7 +33,7 @@ are three schemas for four layers):
     embeddings needs a live API call the migration itself cannot make -
     ``switchboard_core.prose.build`` does that separately.
 
-Nothing in ``source`` may depend on ``knowledge`` or ``prose``.
+Nothing in ``source`` may depend on ``knowledge``, ``prose`` or ``ops``.
 """
 
 from sqlalchemy import BigInteger, MetaData
@@ -33,6 +43,7 @@ from sqlalchemy.types import UserDefinedType
 SOURCE_SCHEMA = "source"
 KNOWLEDGE_SCHEMA = "knowledge"
 PROSE_SCHEMA = "prose"
+OPS_SCHEMA = "ops"
 
 #: Money is stored in cents everywhere in the database, exactly as the .jsonl
 #: files carry it. Dollars exist only in the presentation layer and in the

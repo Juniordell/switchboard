@@ -19,6 +19,7 @@ independently, then fused by reciprocal rank at `1/(60 + rank)`
 """
 
 import datetime
+import time
 
 from pydantic import BaseModel
 from sqlalchemy import text
@@ -121,6 +122,46 @@ def _snippet(content: str) -> str:
     return content[:SNIPPET_MAX_CHARS].rstrip() + "…"
 
 
+class SearchTimings(BaseModel):
+    """The two legs of a search, measured apart. T2.5 put 463 ms of OpenAI
+    against 2-5 ms of Postgres at p95, so one fused number says nothing
+    about which half moved; `docs/HARNESS.md` Layer 4 asserts them
+    separately.
+    """
+
+    embedding_ms: float
+    postgres_ms: float
+
+
+def search_notes_timed(
+    session: Session,
+    entity_id: str,
+    query: str,
+    *,
+    limit: int = DEFAULT_LIMIT,
+) -> tuple[list[NoteSearchResult], SearchTimings]:
+    """`search_notes`, with the embedding call and the Postgres query timed
+    apart. The tool layer reports these; the plain function below discards
+    them. One implementation either way - the orchestration lives here, not
+    duplicated in `switchboard_core.tools`.
+    """
+    job_ids = _resolve_entity_job_ids(session, entity_id)
+    if not job_ids:
+        # Neither leg ran: no scope to search, so no cost to report.
+        return [], SearchTimings(embedding_ms=0.0, postgres_ms=0.0)
+
+    t0 = time.perf_counter()
+    query_vector = embed_texts([query])[0]
+    t1 = time.perf_counter()
+    results = rank_candidates(session, job_ids, query, query_vector, limit=limit)
+    t2 = time.perf_counter()
+
+    return results, SearchTimings(
+        embedding_ms=round((t1 - t0) * 1000, 3),
+        postgres_ms=round((t2 - t1) * 1000, 3),
+    )
+
+
 def search_notes(
     session: Session,
     entity_id: str,
@@ -131,12 +172,8 @@ def search_notes(
     """Hybrid search over notes at `entity_id`. `entity_id` is required and
     positional - see the module docstring.
     """
-    job_ids = _resolve_entity_job_ids(session, entity_id)
-    if not job_ids:
-        return []
-
-    query_vector = embed_texts([query])[0]
-    return rank_candidates(session, job_ids, query, query_vector, limit=limit)
+    results, _timings = search_notes_timed(session, entity_id, query, limit=limit)
+    return results
 
 
 def rank_candidates(

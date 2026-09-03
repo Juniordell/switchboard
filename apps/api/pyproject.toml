@@ -7,6 +7,9 @@ dependencies = [
     "switchboard-core",
     "fastapi==0.141.1",
     "uvicorn[standard]==0.52.4",
+    # Already pinned in the workspace for the embeddings call (T2.5).
+    # Declared here because TestClient needs it directly.
+    "httpx==0.28.1",
 ]
 
 [build-system]

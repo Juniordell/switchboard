@@ -28,7 +28,7 @@ select = ["E", "F", "I", "N", "UP", "B", "SIM", "RUF"]
 # __table_args__ is a SQLAlchemy declarative contract, not a mutable default:
 # the framework reads it off the class. These modules are table declarations
 # and nothing else.
-"packages/core/src/switchboard_core/db/{source,knowledge,prose}/*.py" = ["RUF012"]
+"packages/core/src/switchboard_core/db/{source,knowledge,prose,ops}/*.py" = ["RUF012"]
 
 [tool.ruff.lint.isort]
 known-first-party = ["switchboard_agent", "switchboard_api", "switchboard_core"]
