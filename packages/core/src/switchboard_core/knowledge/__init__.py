@@ -47,6 +47,10 @@ from switchboard_core.knowledge.resolve_address import (
 from switchboard_core.knowledge.resolve_address import (
     resolve_address as resolve_address,
 )
+from switchboard_core.knowledge.visit_history import VisitRow
+from switchboard_core.knowledge.visit_history import (
+    get_visit_history as get_visit_history,
+)
 from switchboard_core.knowledge.warranty_level_3 import (
     LABOR_WARRANTY_MONTHS as LABOR_WARRANTY_MONTHS,
 )
@@ -97,6 +101,7 @@ __all__ = [
     "Level3Verdict",
     "NoteWarrantyClaim",
     "ResolveAddressResult",
+    "VisitRow",
     "WarrantyConfidence",
     "WarrantyCoverage",
     "WarrantyEvidence",
@@ -109,6 +114,7 @@ __all__ = [
     "evaluate_warranty_status",
     "find_callback_source",
     "get_customer_balance",
+    "get_visit_history",
     "job_canonical_id",
     "jobs_at_canonical_address",
     "resolve_address",
