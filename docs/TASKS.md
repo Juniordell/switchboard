@@ -10,14 +10,16 @@ Work one at a time. Do not skip ahead. Each task ends with `ruff check` and
       migration. The job's source `invoice_number` field is modelled as
       `job_number`; `job_id` is the only jobs↔invoices join key. Address id is
       nullable. `street_line_2` normalises `null` and `""` to the same value.
-- [ ] T1.3a **Layer 0 guard** `test_no_job_invoice_number`: walks the
-      `packages/core` AST and fails if `invoice_number` appears on anything
-      job-shaped — a column on the jobs table, a Pydantic field on a job schema
-      or a tool result carrying one, a key in a job serialiser. The one
-      permitted occurrence is the `jobs.jsonl` parsing function, allow-listed
-      by qualified name. Asserts the inverse too: the `invoices` model still
-      carries `invoice_number`, so the guard cannot be passed by deleting the
-      concept. Runs on every commit; see `docs/HARNESS.md` Layer 0.
+- [x] T1.3a **Layer 0 guard** `test_no_job_invoice_number`: AST scan of
+      `packages/core/src`, `apps/api/src`, `apps/agent/src` and `scripts/`,
+      failing if `invoice_number` appears anywhere outside a three-entry
+      allow-list — the `Invoice` model column and the two loader reads/writes
+      of the real invoice number. Plus a schema-shape check that only
+      `invoices` may carry the column, and the inverse: `invoices` still has
+      it, `jobs` has `job_number` instead. Migrations are exempt from the scan
+      and covered by the schema-shape check plus `alembic check`. Verified
+      against a real planted violation, not just synthetic ones. Runs on every
+      commit; see `docs/HARNESS.md` Layer 0.
 - [x] T1.4 Idempotent loaders for jobs, invoices, customers, employees. No
       field from the `.jsonl` is dropped, including ones empty in this export.
       Money stays in cents. The loader logs a WARNING for every value of

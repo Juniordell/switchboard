@@ -24,20 +24,32 @@ Static assertions over the source tree. No model, no database, no fixtures —
 milliseconds, and they run first because a failure here makes every later layer
 meaningless.
 
-**`test_no_job_invoice_number`.** Walks the `packages/core` AST and fails if the
-identifier `invoice_number` appears on anything job-shaped: a SQLAlchemy column
-on the jobs table, a Pydantic field on a job schema or any tool result
-containing one, or a dict key in a job serialiser. The single permitted
-occurrence is inside the `jobs.jsonl` parsing function, which is allow-listed
-by qualified name so that widening the exemption is itself a diff a reviewer
-sees.
+**`test_no_job_invoice_number`.** Three checks, in
+`packages/core/tests/test_no_job_invoice_number.py`:
 
-The same test asserts the inverse: the `invoices` model **does** carry
-`invoice_number`, so the guard cannot be satisfied by deleting the concept.
+1. An AST scan of every `.py` file under `packages/core/src`, `apps/api/src`,
+   `apps/agent/src` and `scripts/` fails if the identifier `invoice_number`
+   appears anywhere not listed in a repo-relative `(path, qualified scope)`
+   allow-list — three scopes total: the `Invoice` model's own column, and the
+   two places the jobs loader reads or writes the real invoice number.
+   Widening the exemption is a diff a reviewer sees, and a companion test
+   fails if a declared exemption stops being used, so a stale one does not
+   linger. Alembic migrations are exempt from this scan — a migration writes
+   column names as plain strings, and scope alone cannot tell which table one
+   belongs to.
+2. Exactly one table in the whole schema, `invoices`, may have an
+   `invoice_number` column — the hole the migration exemption leaves, closed
+   by schema shape instead of source text, together with `alembic check`
+   already gated on every task.
+3. The inverse: `invoices` still carries its own number and `jobs` still
+   carries `job_number`, so the guard cannot be satisfied by deleting the
+   concept.
 
 This is what makes `CLAUDE.md` hard rule 8 structural. The rule says do not
 join on the number; the guard removes the identifier you would need in order to
-write that join. See `docs/DATA.md`.
+write that join. Verified against a real violation: planting
+`Invoice.invoice_number == job.invoice_number` in a scratch module fails check
+1 naming the exact file and line. See `docs/DATA.md`.
 
 ## Layer 1 — Tool selection and arguments
 `evals/golden/tools.yaml`. 40 caller utterances labelled with expected tool
