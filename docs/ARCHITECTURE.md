@@ -27,24 +27,39 @@ See the join trap in `docs/DATA.md`.
 
 ## Addresses are canonical, not source ids
 
-The source address id is not a usable key. 1,390 ids cover 1,360 real
-addresses: 30 canonical addresses are split across 31 redundant ids, and 4 jobs
-have no address id at all while carrying a complete address.
+The source address id is not a usable key. 1,390 ids, one of them entirely
+blank, cover **1,337** real addresses over the 1,389 addressable ones: 51
+canonical addresses carry more than one redundant id, and 4 jobs have no
+address id at all while three of them carry a complete address.
 
-**Canonical key** = normalised `street` + normalised `street_line_2` + `zip`.
-Normalisation is strip + casefold, with `null` and `""` collapsing to the same
-empty value. City is deliberately excluded: the anonymisation relocated cities
-inconsistently, so zip 33162 carries 7 city names and the same street and zip
-appears as both "Key Biscayne" and "Miami Beach".
+**Canonical key** = normalised `street` + normalised `street_line_2` + `zip`,
+built by `switchboard_core.knowledge.address_normalize` (T2.1). Normalisation
+folds case, whitespace, `null`/`""` on the unit, this dataset's
+abbreviation-vs-spelled-out variance (toward the abbreviated form — a caller's
+utterance is usually truncated, not just abbreviated, and a shorter target
+loses less trigram overlap against a query that stops early), and a spoken
+house number into digits. City is deliberately excluded: the anonymisation
+relocated cities inconsistently, so zip 33162 carries 7 city names and the
+same street and zip appears as both "Key Biscayne" and "Miami Beach".
 
-- `address_alias(address_id → canonical_id)` is populated at load. The source
-  id becomes an alias, never a key.
-- The 4 null-id jobs still resolve, because the canonical key is derived from
-  the address string, which is always present.
-- `resolve_address` returns `canonical_id`.
-- `visit_history` and `warranty_status` are keyed on `canonical_id`.
+- `address_alias(address_id → canonical_id)` is populated at load, and rebuilt
+  from scratch every run rather than upserted in place: `canonical_id` is
+  derived from code, not copied from a source id, so it changes whenever the
+  normaliser does, and an upsert never removes a primary key an incoming batch
+  stopped producing. `address_alias.address_id` is stable and upserts safely.
+- Three of the four null-address-id jobs resolve once a job is looked up by
+  its own address string rather than by `address.id` — their street matches
+  an existing canonical group built from `customer_addresses`. The fourth
+  (`job_a8edd70d8b7c`, 69 Plumeria Glen Drive) does not: no `customer_addresses`
+  row carries that street at all, so it has no canonical group yet. Wiring a
+  job to a canonical address, including this case, is T2.2's job when
+  `visit_history` links jobs to addresses directly — T2.1 builds the
+  canonicalisation `customer_addresses` needs, not yet the job-side lookup.
+- `resolve_address` returns `canonical_id`, never `address.id`.
+- `visit_history` and `warranty_status` will be keyed on `canonical_id` from
+  T2.2 onward.
 
-Without this, "when were you last here" answers from half the history at 30
+Without this, "when were you last here" answers from half the history at 51
 addresses, and reports no error while doing it.
 
 ## Derived knowledge returns rows, not prose

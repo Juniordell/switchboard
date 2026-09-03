@@ -35,11 +35,21 @@ Work one at a time. Do not skip ahead. Each task ends with `ruff check` and
       without a tech · 23 distinct tags
 
 ## Phase 2 — Knowledge
-- [ ] T2.1 Address canonicalisation: normalised `street` + `street_line_2` +
-      `zip` (strip + casefold, `null` == `""`, city excluded), `address_alias`
-      table, `pg_trgm` index, `resolve_address` returning `canonical_id`.
-      Asserts 1,360 canonical addresses over 1,390 ids, and that the 4 null-id
-      jobs resolve.
+- [x] T2.1 Address canonicalisation: normalised `street` + `street_line_2` +
+      `zip`, city excluded, in `switchboard_core.knowledge.address_normalize`.
+      Normalisation folds case, whitespace, `null` == `""`, abbreviation
+      variance toward the abbreviated form, and spoken numbers to digits.
+      `knowledge.canonical_addresses` (1,337 rows) + `knowledge.address_alias`
+      (address_id → canonical_id, rebuilt from scratch each run, not upserted
+      — canonical_id is derived from code, address_id is copied from source).
+      `pg_trgm` GIN index on `street_normalized`. `resolve_address` returns up
+      to 3 candidates with scores and `canonical_id`, never `address_id`;
+      `must_ask` on score < 0.55 or a < 0.05 gap to the runner-up. 3 of the 4
+      null-address-id jobs resolve via their raw street; the 4th has no
+      matching `customer_addresses` row and is T2.2's problem. 54 tests,
+      including the hard requirement ("eighty nine harbor light shores" → 89
+      Harborlight Shores Blvd W) and a real duplicate-id pair converging on
+      one `canonical_id`.
 - [ ] T2.2 `visit_history` derived table keyed on `canonical_id`, returning
       structured rows only — no generated prose. Aggregates the 0-to-4 invoices
       a job may have.

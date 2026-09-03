@@ -131,25 +131,45 @@ The dataset does not have a clean address key.
   with no address id and one row of empty strings that the customer listing
   does not. Three different denominators, three different true numbers - name
   the denominator whenever quoting one.
-- No address id ever carries two different streets. The reverse happens:
-  **30 canonical addresses are split across 31 redundant address ids.**
+- No address id ever carries two different streets. The reverse happens: one
+  physical address can carry several redundant ids.
 - `street_line_2` is `null` on 1,171 jobs, the **empty string** on 267, and set
   on 554. Null and `""` are the same case and must normalise to the same value.
 - `city` is noise. The anonymisation relocated cities inconsistently: zip
   33162 appears with 7 different city names, 33155 with 5. The same street and
   zip appears as both "Key Biscayne" and "Miami Beach". **City is not part of
   the key.**
+- One row (`adr_c6efbfa7...`) has every field blank — no street, no city, no
+  zip. It carries no address and is excluded from canonicalisation entirely
+  rather than treated as a real, matchable address; see below.
 
-**Canonical key** = normalised `street` + normalised `street_line_2` + `zip`,
-where normalisation is strip + casefold and `null` and `""` collapse to the
-same empty value. This yields **1,360 canonical addresses**, collapsing 30
-groups that the raw address id splits. Including city and state in the key
-instead yields 1,365 and only catches 25 of those groups — the 5 it misses are
-the city-label collisions above, and they are genuine merges.
+**Canonical key**, as built in `switchboard_core.knowledge.address_normalize`
+(T2.1), is normalised `street` + normalised `street_line_2` + `zip`.
+Normalisation is more than strip + casefold: it also folds this dataset's
+abbreviation-vs-spelled-out variance (`Rd`/`Road`, `Wy`/`Way`, `N`/`North`, and
+the rest of the table in that module) toward the **abbreviated** form, and
+converts a caller's spoken house number into digits (`"eighty nine"` →
+`"89"`). This yields **1,337 canonical addresses** over the 1,389 addressable
+ids (1,390 minus the one blank row above).
 
-`address_alias(address_id → canonical_id)` is populated at load.
-`resolve_address` returns `canonical_id`. `visit_history` is keyed on
-`canonical_id`. See `docs/ARCHITECTURE.md`.
+That is fewer than the 1,359 a bare strip-and-casefold key would produce (no
+suffix or directional folding) — the richer normalisation correctly merges
+pairs a plain casefold treats as distinct, such as "220 Saltgrass Harbor Dr"
+and "220 Saltgrass Harbor Drive". **51 canonical addresses carry more than one
+redundant id**, one of them three deep (a data quirk, not a bug — a stray
+casing difference in a unit number, or the same street relocated to a
+different fictional city label by the anonymiser). Abbreviated, not
+spelled-out, is the canonical *direction* specifically because a caller's
+utterance is normally **truncated**, not merely abbreviated — "eighty nine
+harbor light shores" never says "Boulevard" or "West" at all. A shorter
+canonical target loses less of its trigram overlap against a query that stops
+early; the module docstring has the measured numbers behind that choice.
+
+`address_alias(address_id → canonical_id)` is populated at load, rebuilt from
+scratch on every run rather than upserted in place — see
+`build_addresses.py`'s module docstring for why a derived key needs that.
+`resolve_address` returns `canonical_id`, never `address.id`. `visit_history`
+will be keyed on `canonical_id` from T2.2. See `docs/ARCHITECTURE.md`.
 
 ## Notes have no date
 
