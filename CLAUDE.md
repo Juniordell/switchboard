@@ -11,13 +11,20 @@ docs/DATA.md, docs/AGENTS.md and docs/HARNESS.md before proposing anything.
    about dates, counts, schedules, balances or warranty with a vector search.
 3. search_notes requires a resolved entity id as a positional argument. An
    unscoped semantic search over the corpus is a bug, not an option.
-4. Write tools live only on the Dispatch agent. No read-path agent may import
-   or expose them.
+4. Customer-record write tools live only on the Dispatch agent. No read-path
+   agent may import or expose them. transfer_to_human is kind=control, not
+   write: it routes a call and logs why, mutates no customer record, and is
+   reachable from any agent. See the tool kinds table in docs/AGENTS.md.
 5. Every tool call is logged with call_id, agent, tool, args, duration_ms,
    result_rows and ok. Including failures.
 6. No new dependency without asking. Specifically: no LangChain, no MLflow, no
    vector database, no reranker. If you think one is needed, say why and stop.
 7. Pin every version exactly. No carets, no tildes, no unpinned installs.
+8. job_id is the only join key between jobs and invoices. The field named
+   invoice_number on a job is the JOB number, on a different sequence in the
+   same 4-digit range; joining on it lands on another customer's invoice 1,649
+   times out of 1,992 and reports no error. Load it as job_number. The agent
+   speaks the job number to callers. See docs/DATA.md.
 
 ## Stack
 
