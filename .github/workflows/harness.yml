@@ -62,6 +62,16 @@ jobs:
         run: uv run pytest packages/core/tests/test_no_job_invoice_number.py -q
 
       # ---- The database the rest of the layers read.
+      - name: Create the Postgres extensions
+        # docker-compose gets these from infra/postgres/initdb, which a
+        # service container never runs - it has no way to mount the file.
+        # Same statements, same idempotency, applied here instead.
+        run: |
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 \
+            -f infra/postgres/initdb/01-extensions.sql
+          psql "$DATABASE_URL" -t -A -c \
+            "SELECT extname FROM pg_extension ORDER BY extname"
+
       - name: Migrate
         working-directory: packages/core
         run: uv run alembic upgrade head
