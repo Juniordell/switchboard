@@ -117,3 +117,39 @@ class ReviewItem(Base):
     resolved_at: Mapped[datetime.datetime | None] = mapped_column(
         DateTime(timezone=True)
     )
+
+
+class TranscriptTurn(Base):
+    """One thing said on a call, by either side.
+
+    Nothing stored a transcript before T6.3. The call log screen is not
+    readable without one - a list of tool calls with no words around them
+    tells an office manager what the machine did and nothing about what the
+    caller wanted.
+
+    `seq` orders turns inside a call. Two turns can share a timestamp to the
+    millisecond when the agent answers fast, and "which came first" has to
+    survive that.
+    """
+
+    __tablename__ = "transcript_turns"
+    __table_args__ = (
+        Index("ix_transcript_turns_call_id", "call_id", "seq"),
+        {"schema": OPS_SCHEMA},
+    )
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    call_id: Mapped[str] = mapped_column(String)
+    seq: Mapped[int] = mapped_column()
+
+    #: user or assistant.
+    role: Mapped[str] = mapped_column(String)
+    text: Mapped[str] = mapped_column(String)
+
+    #: Which agent was holding the call when this was said, so the log can
+    #: show the handoff rather than a flat conversation.
+    agent: Mapped[str | None] = mapped_column(String)
+
+    created_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
