@@ -11,10 +11,20 @@ exactly the read half of that table; write tools (T3.3) and `web_search`
 (T3.4) do not exist yet.
 """
 
+from switchboard_core.tools.add_note import (
+    AddNoteOutput,
+    AddNoteRequest,
+    add_note,
+)
 from switchboard_core.tools.availability import (
     AvailabilityOutput,
     AvailabilityRequest,
     find_availability,
+)
+from switchboard_core.tools.book_job import (
+    BookJobOutput,
+    BookJobRequest,
+    book_job,
 )
 from switchboard_core.tools.call_log import log_tool_call
 from switchboard_core.tools.caller_role import (
@@ -36,7 +46,13 @@ from switchboard_core.tools.customer_balance import (
 )
 from switchboard_core.tools.errors import (
     InvalidEntityIdError,
+    JobNotFoundError,
     RetrievalUnavailableError,
+)
+from switchboard_core.tools.move_job import (
+    MoveJobOutput,
+    MoveJobRequest,
+    move_job,
 )
 from switchboard_core.tools.resolve_address import (
     ResolveAddressOutput,
@@ -84,16 +100,34 @@ READ_TOOLS = {
     "find_availability": find_availability,
 }
 
+#: Every write tool. `agent` is "Dispatch" on all of them, and
+#: `test_write_tools_are_dispatch_only.py` fails if that ever stops being
+#: true or if one of these leaks into READ_TOOLS - CLAUDE.md hard rule 4 as
+#: a test rather than as a convention.
+WRITE_TOOLS = {
+    "book_job": book_job,
+    "move_job": move_job,
+    "add_note": add_note,
+}
+
 __all__ = [
     "READ_TOOLS",
+    "WRITE_TOOLS",
+    "AddNoteOutput",
+    "AddNoteRequest",
     "AvailabilityOutput",
     "AvailabilityRequest",
+    "BookJobOutput",
+    "BookJobRequest",
     "CallerRole",
     "CallerRoleOutput",
     "CallerRoleRequest",
     "CustomerBalanceOutput",
     "CustomerBalanceRequest",
     "InvalidEntityIdError",
+    "JobNotFoundError",
+    "MoveJobOutput",
+    "MoveJobRequest",
     "ResolveAddressOutput",
     "ResolveAddressRequest",
     "ResolveCustomerOutput",
@@ -110,6 +144,8 @@ __all__ = [
     "VisitHistoryRequest",
     "WarrantyStatusOutput",
     "WarrantyStatusRequest",
+    "add_note",
+    "book_job",
     "find_availability",
     "get_customer_balance",
     "get_schedule",
@@ -117,6 +153,7 @@ __all__ = [
     "get_warranty_status",
     "identify_caller_role",
     "log_tool_call",
+    "move_job",
     "resolve_address",
     "resolve_customer",
     "search_notes",

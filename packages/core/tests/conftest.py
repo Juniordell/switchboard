@@ -24,3 +24,20 @@ def db_session():
     with factory() as session, session.begin():
         yield session
     engine.dispose()
+
+
+@pytest.fixture
+def write_session(db_session):
+    """A SAVEPOINT around a test that writes, rolled back on the way out.
+
+    `db_session` is session-scoped and every other test treats it as
+    read-only. A write tool's rows would otherwise outlive the test that
+    made them and change what a later schedule query returns - the overlay
+    is deliberately visible to reads, which is exactly what makes leaking
+    one dangerous here.
+    """
+    nested = db_session.begin_nested()
+    try:
+        yield db_session
+    finally:
+        nested.rollback()
