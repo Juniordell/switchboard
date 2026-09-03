@@ -15,6 +15,7 @@ import httpx
 import pytest
 
 from switchboard_agent.text_client import (
+    NOT_MODEL_SELECTABLE,
     SYSTEM_PROMPT,
     ToolCall,
     choose_tools,
@@ -47,9 +48,16 @@ def _key(monkeypatch):
 
 
 class TestTheSchemasItBinds:
-    def test_every_tool_is_offered_to_the_model(self) -> None:
+    def test_every_selectable_tool_is_offered_to_the_model(self) -> None:
         offered = {s["function"]["name"] for s in tool_schemas()}
-        assert offered == set(READ_TOOLS) | set(WRITE_TOOLS)
+        assert offered == (set(READ_TOOLS) | set(WRITE_TOOLS)) - NOT_MODEL_SELECTABLE
+
+    def test_a_logic_tool_is_not_offered_at_all(self) -> None:
+        """`identify_caller_role` is computed from what `resolve_customer`
+        returned. Offering it and then treating its selection as a bug
+        would be incoherent, so it is never handed over."""
+        offered = {s["function"]["name"] for s in tool_schemas()}
+        assert "identify_caller_role" not in offered
 
     def test_each_carries_the_tool_s_own_pydantic_schema(self) -> None:
         """The same models the HTTP layer validates against - one schema,
@@ -84,7 +92,9 @@ class TestTheRequestItSends:
         assert seen["messages"][1]["content"] == (
             "when were you last at 89 harborlight shores"
         )
-        assert len(seen["tools"]) == len(READ_TOOLS) + len(WRITE_TOOLS)
+        assert len(seen["tools"]) == (
+            len(READ_TOOLS) + len(WRITE_TOOLS) - len(NOT_MODEL_SELECTABLE)
+        )
         assert seen["tool_choice"] == "auto"
 
 

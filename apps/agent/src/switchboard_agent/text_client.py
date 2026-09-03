@@ -29,7 +29,17 @@ CHAT_URL = "https://api.openai.com/v1/chat/completions"
 DEFAULT_MODEL = os.environ.get("HARNESS_MODEL", "gpt-4o-mini")
 REQUEST_TIMEOUT_SECONDS = 30.0
 
-ALL_TOOLS = {**READ_TOOLS, **WRITE_TOOLS}
+#: `identify_caller_role` is `kind=logic`: the system computes it from what
+#: `resolve_customer` already returned, and the model never picks it. Handing
+#: it to the model and then calling its selection a bug would be incoherent,
+#: so it is not offered. Twelve tools reach the model, not thirteen.
+NOT_MODEL_SELECTABLE = frozenset({"identify_caller_role"})
+
+ALL_TOOLS = {
+    name: fn
+    for name, fn in {**READ_TOOLS, **WRITE_TOOLS}.items()
+    if name not in NOT_MODEL_SELECTABLE
+}
 
 #: Only the rules that change which tool gets picked. The full instructions
 #: are Phase 5's; what Layer 1 grades is selection, and a prompt longer than
@@ -84,6 +94,11 @@ def choose_tools(
         ],
         "tools": tool_schemas(),
         "tool_choice": "auto",
+        # Layer 1 asserts deterministically and has no judge, so the thing
+        # it grades cannot be sampled. Without this the same utterance
+        # picks web_search on one run and nothing on the next, and a red
+        # line means "unlucky" rather than "wrong".
+        "temperature": 0,
     }
     key = os.environ.get("OPENAI_API_KEY", "").strip()
     if not key:
