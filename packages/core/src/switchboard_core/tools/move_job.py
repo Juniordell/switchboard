@@ -47,7 +47,7 @@ class MoveJobOutput(ToolResult):
     replayed: bool
 
 
-@tool_call(name="move_job", agent="Dispatch")
+@tool_call(kind="write", name="move_job", agent="Dispatch")
 def move_job(
     request: MoveJobRequest, *, call_id: str, session: Session
 ) -> MoveJobOutput:

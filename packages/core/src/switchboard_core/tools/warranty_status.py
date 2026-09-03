@@ -37,7 +37,7 @@ class WarrantyStatusOutput(ToolResult):
     as_of: datetime.datetime
 
 
-@tool_call(name="get_warranty_status", agent="Service")
+@tool_call(kind="SQL", name="get_warranty_status", agent="Service")
 def get_warranty_status(
     request: WarrantyStatusRequest,
     *,

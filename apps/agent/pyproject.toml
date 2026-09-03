@@ -5,6 +5,9 @@ description = "LiveKit voice agent for the Switchboard front desk"
 requires-python = ">=3.12,<3.13"
 dependencies = [
     "switchboard-core",
+    # Already pinned in the workspace (T2.5). The T4.0 text client posts
+    # to the model with it; livekit-agents arrives at T5.1.
+    "httpx==0.28.1",
 ]
 
 [build-system]

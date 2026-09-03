@@ -64,7 +64,7 @@ class ToolDomainError(Exception):
 
 
 def tool_call(
-    *, name: str, agent: str
+    *, name: str, agent: str, kind: str
 ) -> Callable[[Callable[..., ToolResult]], Callable[..., ToolResult | ToolError]]:
     """Decorate a tool function `fn(request, *, call_id, **kwargs) ->
     ToolResult`. The wrapped version never raises for a recognised domain
@@ -95,6 +95,10 @@ def tool_call(
         #: asserts on it, so neither has to keep its own table in step.
         wrapper.tool_name = name
         wrapper.tool_agent = agent
+        #: `docs/AGENTS.md`'s tool-kinds table. Layer 4 asserts p95 per
+        #: kind, so the taxonomy has to be authoritative in one place
+        #: rather than duplicated in a map the harness keeps.
+        wrapper.tool_kind = kind
 
         return wrapper
 

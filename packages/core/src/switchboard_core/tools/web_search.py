@@ -32,7 +32,7 @@ class WebSearchOutput(ToolResult):
         return len(self.results)
 
 
-@tool_call(name="web_search", agent="Service")
+@tool_call(kind="web", name="web_search", agent="Service")
 def web_search(
     request: WebSearchRequest,
     *,

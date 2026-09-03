@@ -38,7 +38,7 @@ class ResolveCustomerOutput(ToolResult):
         return len(self.customer.candidates)
 
 
-@tool_call(name="resolve_customer", agent="Triage")
+@tool_call(kind="SQL", name="resolve_customer", agent="Triage")
 def resolve_customer(
     request: ResolveCustomerRequest, *, call_id: str, session: Session
 ) -> ResolveCustomerOutput:

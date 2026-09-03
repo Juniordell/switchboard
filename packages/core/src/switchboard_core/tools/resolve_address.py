@@ -27,7 +27,7 @@ class ResolveAddressOutput(ToolResult):
         return len(self.address.candidates)
 
 
-@tool_call(name="resolve_address", agent="Triage")
+@tool_call(kind="SQL", name="resolve_address", agent="Triage")
 def resolve_address(
     request: ResolveAddressRequest, *, call_id: str, session: Session
 ) -> ResolveAddressOutput:

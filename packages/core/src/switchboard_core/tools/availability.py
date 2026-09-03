@@ -43,7 +43,7 @@ class AvailabilityOutput(ToolResult):
         return len(self.slots)
 
 
-@tool_call(name="find_availability", agent="Dispatch")
+@tool_call(kind="SQL", name="find_availability", agent="Dispatch")
 def find_availability(
     request: AvailabilityRequest,
     *,

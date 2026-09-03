@@ -23,7 +23,7 @@ class CustomerBalanceOutput(ToolResult):
     balance: CustomerBalance
 
 
-@tool_call(name="get_customer_balance", agent="Service")
+@tool_call(kind="SQL", name="get_customer_balance", agent="Service")
 def get_customer_balance(
     request: CustomerBalanceRequest, *, call_id: str, session: Session
 ) -> CustomerBalanceOutput:

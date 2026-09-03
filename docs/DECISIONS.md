@@ -240,3 +240,81 @@ rather than discovered in the diff.
 | 129 | The smoke script starts and stops its own uvicorn, and deletes the rows its write tools committed | A smoke test that needs a server started by hand gets run less; one that leaves bookings behind poisons the next `get_schedule` it runs. Verified that `ops` is empty afterwards rather than assumed | scripts/smoke_tools.sh |
 | 130 | A missing `TAVILY_API_KEY` reports `web_search` as **SKIP**, never as a pass, and the summary says so | The whole point of entry 80's refusal-to-fabricate discipline. A green line for a tool nobody exercised is the failure mode this script exists to prevent | scripts/smoke_tools.sh |
 | 131 | Two monkeypatch targets had to be resolved through `sys.modules` | `tools/__init__.py` and `prose/__init__.py` both re-export a function whose name matches its own submodule, so the dotted string form resolves to the function. It surfaced in `web_search` only in the full suite, where the import order differs from running the file alone - a real ordering bug, not flakiness | tests/test_tools_web_search.py, tests/test_tools_search_notes.py |
+
+## 2026-09-03 — T4.0 the minimal text tool client
+
+First live run against the real model, before any golden set existed, to
+see whether the schemas are usable at all:
+
+| utterance | tools chosen |
+|---|---|
+| when were you last at 89 harborlight shores | `resolve_address` |
+| what do I owe you? this is Serena Weeks | `resolve_customer` |
+| what did the tech do about the drain on job 28e341b2… | `search_notes` |
+| am I still under warranty on the condenser at 823 Marlin Cay | `resolve_address` |
+| I need somebody out here thursday, my house is not cooling | **(none)** |
+| is r410a being phased out? | `web_search` |
+
+`docs/HARNESS.md`'s own Layer 1 example passes: the first utterance opens
+with `resolve_address` and not `search_notes`. The third is right for a
+reason worth naming — the caller supplied a resolved job id, which is the
+only condition under which `search_notes` may open a turn.
+
+| # | Decision | Why | Lives in |
+|---|---|---|---|
+| 132 | The client lives in `apps/agent`, not `packages/core` | Phase 5 replaces it in place with the real cascade agent, and `packages/core` is the domain library — records, knowledge, prose, tools. A model client is not domain knowledge, and putting it there would make every consumer of the library depend on one | apps/agent/text_client.py |
+| 133 | It returns tool calls and **executes nothing** | Layer 1 grades selection and arguments. Executing would mean a golden case for `book_job` writes a booking every time the harness runs, and would fold two failures — chose the wrong tool, ran the tool wrong — into one signal. A test asserts `ops.booked_jobs` stays empty after a `book_job` selection | apps/agent/text_client.py |
+| 134 | **override** All 13 tools are bound, where the task said twelve | Dropping `web_search` removes the one distinction that tests `docs/AGENTS.md`'s "try `search_notes` first for anything the company may already know" — a selection rule Layer 1 exists to grade. The live run confirms the model does separate them: a job's drain history went to `search_notes`, an industry question about R-410A went to `web_search` | apps/agent/text_client.py |
+| 135 | Schemas are generated from the tools' own Pydantic request models | The same objects the HTTP layer validates and T3.5 publishes at `GET /tools`. A hand-written copy for the model would be a second definition to keep in step, and Layer 1 would then be grading against a shape production does not use | apps/agent/text_client.py |
+| 136 | A broken model call raises rather than returning an empty list | This is harness plumbing, not a tool, so T3.1's contract does not apply: an HTTP 500 from the model is a defect the runner must see. An empty list means the model chose no tool, which is a real and different outcome the golden set has to be able to assert on | apps/agent/text_client.py |
+| 137 | The system prompt carries only the rules that change which tool gets picked | Layer 1 grades selection. A full instruction set here would mean the harness is grading the prompt rather than the binding, and Phase 5 owns the real prompt anyway | apps/agent/text_client.py |
+| 138 | The live model test is opt-in behind `HARNESS_LIVE=1` | Every run costs an API call, and the suite runs on every task. The stubbed tests use a real `httpx.MockTransport`, so the outgoing request is still built and asserted — only the network is replaced. Verified the live test actually passes when enabled, which caught an autouse fixture that was feeding it a fake key and would have made it unpassable | apps/agent/tests/test_text_client.py |
+
+## 2026-09-03 — T4.1 the golden set and T4.2 the Layer 1 runner
+
+**One case is red and staying red until someone rules on it.**
+`schedule_today_internal` — "this is Ray, I own the company, what's on the
+board today" — was labelled `resolve_customer` → `get_schedule`. The model
+opens with `get_schedule` instead, stably, at temperature 0.
+
+The model is probably right and the label wrong: there are **zero customers
+named Ray** and one employee, so `resolve_customer` would search the wrong
+table and find nothing. `get_schedule` also does not require a
+`customer_id` for an internal role, so the arguments are fillable.
+
+But flipping the label green would paper over what the case actually
+exposes: **nothing verifies the role claim.** `get_schedule` trusts the
+`role` argument the model filled in from the caller's own words, and
+`identify_caller_role` is no longer model-selectable, so a caller who says
+"I own the company" gets the whole day's board. That is a Triage-boundary
+hole, not a labelling detail, and Layer 3b is where it gets asserted. Left
+failing on purpose.
+
+| # | Decision | Why | Lives in |
+|---|---|---|---|
+| 139 | Temperature pinned to 0 in the text client | `docs/HARNESS.md` calls Layer 1 "deterministic assertions, no judge", and it was not: the same utterance chose `web_search` on one run and nothing on the next. **Three of five first-run failures were sampling, not model error** - at temperature 0 all three pick correctly and reproduce. A harness whose red lines mean "unlucky" trains you to ignore red lines | apps/agent/text_client.py |
+| 140 | `identify_caller_role` is not offered to the model at all | Handing a tool over and then treating its selection as a bug is incoherent. It is `kind=logic`, computed from what `resolve_customer` returned. Making it unofferable turns the rule into something that cannot be broken rather than something the runner catches afterwards - and the model-facing set is twelve, which is what the task said all along | apps/agent/text_client.py, evals/golden/tools.yaml |
+| 141 | Layer 1 grades the **opening move**, not the whole sequence | Measured before deciding: one round trip returns one tool, because the `canonical_id` the second tool needs does not exist until the first has run. Grading a two-step sequence single-turn would fail every chained case for a reason that has nothing to do with the agent's judgement. The rest of the sequence documents intent and belongs to Layer 3 | evals/runner.py |
+| 142 | `expects_followup` is recorded and **not graded** at Layer 1 | This runner sees tool calls, never the sentence the agent spoke. Claiming to grade the question would be asserting something the layer cannot observe. Stated in the runner's docstring rather than left for a reader to discover | evals/runner.py |
+| 143 | The two provenance cases are pytest tests, not runner cases | They need the database and no model, so they cost nothing and run in the ordinary suite on every commit - which is what "breaks CI, not review" requires. Putting them in the model-driven runner would have made the most important assertion in the harness the one that only runs when someone pays for it | evals/test_number_provenance.py |
+| 144 | Each provenance fixture asserts **the trap is still a trap** | Without it, a change in the data could make these tests pass by having nothing left to catch - the worst kind of green. The check is that the colliding invoice number still belongs to a different job | evals/test_number_provenance.py |
+| 145 | The provenance tests were verified against a **planted** wrong join | Same discipline as T1.3a. Joining invoices on `job_number` instead of `job_id` makes them fail naming Seth Flynn and Charlene Whitaker as the customers whose invoices leaked into another's answer. A guard nobody has watched fail is a guard nobody knows works | evals/test_number_provenance.py |
+| 146 | `refuse_another_customers_property` allows `resolve_address` | Applying the user's own ruling: resolving an address returns address candidates and leaks nothing; pulling that entity's history is the leak. The original label forbade every tool, which contradicted the forbids list on the same case | evals/golden/tools.yaml |
+| 147 | An ambiguity fixture was corrected against the live database | `docs/DECISIONS.md` entry 8's address pair no longer ties - the gap is 0.061 against a 0.05 threshold, so it resolves confidently now. The real tie today is "old mangrove", 0.565 against 0.565. Re-verified rather than copied from the log | evals/golden/tools.yaml |
+| 148 | `conftest.py` moved to the repository root | `evals` needs the same `db_session` the core tests use, and duplicating the fixture would let the two drift. Moved in the same commit that adds the `evals` testpath, so no intermediate commit is missing its fixtures | conftest.py |
+
+## 2026-09-03 — T4.3 the measured baseline and the CI gate
+
+| # | Decision | Why | Lives in |
+|---|---|---|---|
+| 149 | The red case is named `role_claim_unverified` and marked `intentional_red: layer_3b` | It is a known gap with an address, not a failure that slipped through. The name says what is missing rather than which utterance exposed it, so the case reads as a boundary the system does not yet enforce: nothing verifies the role claim, and a caller who says "I own the company" is handed the day's board. Painting it green would delete the only place that is written down | evals/golden/tools.yaml, HARNESS.md |
+| 150 | The gate excludes intentional reds, and reports loudly if one starts **passing** | A gate exists to catch a green turning red. A red that is understood, owned and documented is not news on every commit - but a red that quietly turns green means the gap may have closed and nobody removed the marker, which is how a stale exemption outlives the thing it exempted | evals/runner.py |
+| 151 | `tool_call` now takes and records `kind` | T3.1 deliberately left it out because nothing consumed it (entry 90). Layer 4 asserts p95 **per tool class**, so something does now. Putting it on the decorator rather than in a map inside `evals/` keeps `docs/AGENTS.md`'s taxonomy authoritative in one place - the alternative was a second table to update whenever a tool is added | tools/contract.py, tools/*.py |
+| 152 | The pytest session captures its own tool call log for Layer 4 | `docs/HARNESS.md` requires Layer 4 to measure the log **the run that is executing** produced, and there is no ambient corpus of production calls in CI. The suite executes real tools through the real decorator, so it is the run that produces them; `evals/layer4.py` refuses to run at all if that file is not there rather than reading a borrowed one | conftest.py, evals/layer4.py |
+| 153 | `search_notes` is asserted on `postgres_ms`, not on `duration_ms` | The suite stubs the OpenAI call, so its total omits the leg T2.5 measured at 1,298 ms p95. Asserting the total would publish a hybrid p95 of ~3 ms and call the budget met. This is the payoff of the partial-timings hook: the database leg is real even when the network leg is not, and the report says which is which | evals/layer4.py |
+| 154 | `web` and `write` are measured and reported without a ceiling | `web_search` never reaches Tavily without a key, so its rows are the typed-error path - budgeting them would assert against a failure mode. `write` has no published budget in `docs/ARCHITECTURE.md`; inventing one here would be a number nobody measured, which is the thing T2.5 was about | evals/layer4.py |
+| 155 | Both gates were verified against **planted** regressions | Same discipline as the provenance guard and T1.3a. A gate nobody has watched fail is a gate nobody knows works: a green turning red exits 1 at a 0.027 drop past the 0.02 band, a p95 over budget exits 1, and a p95 2% above baseline exits 1. The baseline was restored and diffed afterwards | evals/runner.py, evals/layer4.py |
+| 156 | Layer 1 runs in CI only when `OPENAI_API_KEY` is set, and says a skip is not a pass | Layer 0 and the number-provenance case need no key and must never be skippable; those run unconditionally. A model-driven layer cannot run without credentials, and the alternative to skipping it loudly is a workflow that is green because it did less | .github/workflows/harness.yml |
+| 157 | **Correction to a published measurement.** `statistics.quantiles` defaults to a method that extrapolates past the observed range | Caught because Layer 4 reported a p95 *above* the max, which is impossible for a measured percentile. `scripts/prose_measurements.py` carried the same default, so T2.5's published latency figures are overstated by up to ~10%. Conservative is the safe direction for a budget, and the numbers in `docs/ARCHITECTURE.md` are left standing rather than silently rewritten - but the method is fixed and the overstatement is now on the record | evals/layer4.py, scripts/prose_measurements.py |
+| 158 | Hosted CI runs lint, format and Layer 0 only; every data-dependent layer is gated and announced as NOT RUN | Found by running the workflow for real, twice. `CLAUDE.md` hard rule 1 forbids committing `data/`, so a hosted runner has no dataset - which is a constraint, not a bug, and the two dishonest ways out were committing the data or generating a synthetic one that would make `verify_load`'s exact counts meaningless. `docs/HARNESS.md` claimed the full gate runs on every commit; that claim is now scoped to a runner that has the dataset, and a green hosted run is explicitly not the same claim as a green local gate | .github/workflows/harness.yml, HARNESS.md |
+| 159 | The CI creates the Postgres extensions from the same SQL file compose uses | The first real run failed on `gin_trgm_ops does not exist`: a service container cannot mount `infra/postgres/initdb`, so it starts without `vector` or `pg_trgm`. Running the file rather than restating the statements means the two paths cannot drift, and the step prints `pg_extension` afterwards so the log says what is actually installed | .github/workflows/harness.yml |

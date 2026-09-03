@@ -205,11 +205,21 @@ Work one at a time. Do not skip ahead. Each task ends with `ruff check` and
       HTTP tests alongside it.
 
 ## Phase 4 — Harness v1 (before the agent)
-- [ ] T4.0 Minimal text tool client: binds the Pydantic tool schemas to a model,
+- [x] T4.0 Minimal text tool client: binds the Pydantic tool schemas to a model,
       takes an utterance, returns the tool calls requested. No audio, no
       LiveKit session, no agent class, no handoffs. This is what makes Layers 1
       and 4 runnable before Phase 5 exists.
-- [ ] T4.1 40 golden utterances in `evals/golden/tools.yaml`, including the
+      `switchboard_agent.text_client`, in `apps/agent` because that is what
+      Phase 5 replaces in place. The seam is
+      `choose_tools(utterance) -> list[ToolCall]`; while it holds, the runner
+      does not change. **It executes nothing** — selection and execution are
+      different jobs, which is what lets a golden case assert on a `book_job`
+      call without booking anything. Binds all **13** tools, not 12: dropping
+      `web_search` would delete the `search_notes`-first distinction Layer 1
+      grades. Schemas come from the tools' own Pydantic models, so there is no
+      hand-written copy to drift. 12 tests; the live one is skipped unless
+      `HARNESS_LIVE=1`, since each run costs an API call.
+- [x] T4.1 40 golden utterances in `evals/golden/tools.yaml`, including the
       **number-provenance case**: the caller asks for the number of a service
       and the assertion is that every number returned traces to a row whose
       `job_id` is the resolved job's — job number equals `job.job_number`,
@@ -218,14 +228,55 @@ Work one at a time. Do not skip ahead. Each task ends with `ruff check` and
       invoice 3743 is Seth Flynn's at another address) and
       `job_28e341b2…` (job number 3611, where invoice 3611 is Charlene
       Whitaker's). See `docs/HARNESS.md`.
-- [ ] T4.2 Runner asserting tool sequence and argument shape against T4.0.
-      Re-runs the dense-vs-lexical comparison against the real golden set as
-      an ongoing regression check — T2.5 already settled the question itself
-      (4/20 agreement on a real stand-in set; see `docs/DECISIONS.md`).
-- [ ] T4.3 `evals/baseline.json` measured from the T3.1 `duration_ms` log, per
+      Both fixtures re-verified against the loaded database; the Saltbush
+      one is worse than documented — Charlene Whitaker is *also* an Osprey
+      Hospitality account, the same company as the other fixture's customer.
+      **15 cases are `expects_no_tool_call`**: the turn that asks for the
+      missing data rather than guessing a property. `expects_tool_then_ask`
+      is a third category — the tool runs, comes back ambiguous, the turn
+      ends in a question. One fixture corrected against reality: the address
+      pair `docs/DECISIONS.md` cited as ambiguous no longer is (gap 0.061 >
+      0.05); the real tie is "old mangrove", 0.565 against 0.565.
+- [x] T4.2 Runner asserting tool sequence and argument shape against T4.0.
+      `evals/runner.py`, two modes. **Selection (38)** grades the *opening
+      move*, because one round trip is one step — measured, not assumed: the
+      model returns `resolve_address` and stops, since the `canonical_id`
+      `get_visit_history` needs does not exist until the first tool has run.
+      Prohibitions and no-tool cases are graded in full; the rest of a
+      sequence, and `expects_followup`, become gradable at Layer 3, where
+      there is a conversation to grade. **Provenance (2)** lives in
+      `evals/test_number_provenance.py` as ordinary tests — no model, no
+      cost, runs on every commit, and verified against a *planted* wrong
+      join, which makes them fail naming Seth Flynn and Charlene Whitaker as
+      the customers whose invoices leaked. **37/38 selection cases pass.**
+      The one red case is real and open — see `docs/DECISIONS.md`.
+      **Not done in this task:** the dense-vs-lexical re-run. The golden set
+      carries 3 `search_notes` cases, not the 20 queries that comparison
+      needs, so re-running it here would be a different and weaker
+      measurement than T2.5's. It needs its own query set; flagged rather
+      than faked.
+- [x] T4.3 `evals/baseline.json` measured from the T3.1 `duration_ms` log, per
       tool class, plus a GitHub Actions workflow that fails on regression.
       Layers 0 and 1 and Layer 4 on every commit; Layer 4 reads the log the
       run it belongs to produced.
+      The pytest session captures the `switchboard_core.tools` logger into
+      `evals/last_run_tool_calls.jsonl`, and `evals/layer4.py` asserts p95
+      per **kind** — a field `tool_call` now records, so the taxonomy lives
+      in the tool rather than in a map the harness keeps. Baseline measured:
+      Layer 1 **37/37 graded** (`role_claim_unverified` excluded as an
+      intentional red owned by Layer 3b), SQL p95 9.9 ms against a 40 ms
+      budget, hybrid 2.8 ms on `postgres_ms`, write 3.9 ms. Both gates
+      verified against **planted** regressions: a green turning red, a p95
+      past budget, and a p95 2% above baseline each exit 1.
+      `.github/workflows/harness.yml` runs lint, Layer 0, migrate, load,
+      verify_load, the full suite, then Layer 4, then Layer 1 when
+      `OPENAI_API_KEY` is configured — and warns that a skip is not a pass
+      when it is not.
+      Fixed along the way: `statistics.quantiles` defaults to a method that
+      **extrapolates past the observed range**, which had produced a p95
+      above the max. `scripts/prose_measurements.py` carried the same
+      default, so T2.5's published figures are conservative by up to ~10% —
+      the safe direction for a budget, now stated rather than implicit.
 
 ## Phase 5 — Voice
 - [ ] T5.1 Single LiveKit agent, cascade pipeline, tools bound, dialable

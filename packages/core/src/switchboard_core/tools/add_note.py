@@ -40,7 +40,7 @@ class AddNoteOutput(ToolResult):
     replayed: bool
 
 
-@tool_call(name="add_note", agent="Dispatch")
+@tool_call(kind="write", name="add_note", agent="Dispatch")
 def add_note(
     request: AddNoteRequest, *, call_id: str, session: Session
 ) -> AddNoteOutput:
