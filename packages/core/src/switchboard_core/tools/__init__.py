@@ -75,6 +75,11 @@ from switchboard_core.tools.search_notes import (
     SearchNotesRequest,
     search_notes,
 )
+from switchboard_core.tools.transfer import (
+    TransferOutput,
+    TransferRequest,
+    transfer_to_human,
+)
 from switchboard_core.tools.visit_history import (
     VisitHistoryOutput,
     VisitHistoryRequest,
@@ -117,7 +122,16 @@ WRITE_TOOLS = {
     "add_note": add_note,
 }
 
+#: `control`: changes call routing, writes an audit row, mutates no
+#: customer record. Reachable from any agent by design - hard rule 4 is
+#: scoped to customer-record writes, and forcing a caller through the
+#: write-holding agent to reach a person would invert the boundary.
+CONTROL_TOOLS = {
+    "transfer_to_human": transfer_to_human,
+}
+
 __all__ = [
+    "CONTROL_TOOLS",
     "READ_TOOLS",
     "WRITE_TOOLS",
     "AddNoteOutput",
@@ -147,6 +161,8 @@ __all__ = [
     "ToolDomainError",
     "ToolError",
     "ToolResult",
+    "TransferOutput",
+    "TransferRequest",
     "VisitHistoryOutput",
     "VisitHistoryRequest",
     "WarrantyStatusOutput",
@@ -168,5 +184,6 @@ __all__ = [
     "resolve_customer",
     "search_notes",
     "tool_call",
+    "transfer_to_human",
     "web_search",
 ]

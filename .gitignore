@@ -12,3 +12,6 @@ dist/
 
 # Layer 4 reads the tool call log the run that produced it wrote.
 evals/last_run_tool_calls.jsonl
+
+# Layer 3b reads the turn log a real call produced.
+evals/last_call_turns.jsonl
