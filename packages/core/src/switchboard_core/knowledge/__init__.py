@@ -17,6 +17,9 @@ from switchboard_core.knowledge.build_install_dates import (
     build_install_dates,
 )
 from switchboard_core.knowledge.job_address import job_canonical_id as job_canonical_id
+from switchboard_core.knowledge.job_address import (
+    jobs_at_canonical_address as jobs_at_canonical_address,
+)
 from switchboard_core.knowledge.resolve_address import AMBIGUOUS_GAP as AMBIGUOUS_GAP
 from switchboard_core.knowledge.resolve_address import (
     CONFIDENCE_THRESHOLD as CONFIDENCE_THRESHOLD,
@@ -63,5 +66,6 @@ __all__ = [
     "build_install_dates",
     "evaluate_level_3",
     "job_canonical_id",
+    "jobs_at_canonical_address",
     "resolve_address",
 ]
