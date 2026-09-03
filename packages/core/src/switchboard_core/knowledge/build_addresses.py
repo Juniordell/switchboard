@@ -129,14 +129,3 @@ def build_canonical_addresses(session: Session) -> dict[str, int]:
         "address_alias": upsert(session, AddressAlias, alias_rows),
         "addresses_skipped_no_street": skipped,
     }
-
-
-def build_all(session: Session) -> dict[str, int]:
-    """Run every knowledge-layer build step, in dependency order.
-
-    Only addresses today. T2.2-T2.4 extend this as visit_history,
-    warranty_status and the rest of the Knowledge layer come online.
-    """
-    counts: dict[str, int] = {}
-    counts.update(build_canonical_addresses(session))
-    return counts

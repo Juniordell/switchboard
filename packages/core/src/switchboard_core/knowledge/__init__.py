@@ -5,10 +5,18 @@ function with a build step that writes `switchboard_core.db.knowledge` tables
 from `source`, and a tool function agents call at request time.
 """
 
+from sqlalchemy.orm import Session
+
 from switchboard_core.knowledge.build_addresses import (
-    build_all,
     build_canonical_addresses,
 )
+from switchboard_core.knowledge.build_install_dates import (
+    INSTALL_DESCRIPTION_PREFIXES as INSTALL_DESCRIPTION_PREFIXES,
+)
+from switchboard_core.knowledge.build_install_dates import (
+    build_install_dates,
+)
+from switchboard_core.knowledge.job_address import job_canonical_id as job_canonical_id
 from switchboard_core.knowledge.resolve_address import AMBIGUOUS_GAP as AMBIGUOUS_GAP
 from switchboard_core.knowledge.resolve_address import (
     CONFIDENCE_THRESHOLD as CONFIDENCE_THRESHOLD,
@@ -21,12 +29,28 @@ from switchboard_core.knowledge.resolve_address import (
     resolve_address as resolve_address,
 )
 
+
+def build_all(session: Session) -> dict[str, int]:
+    """Run every knowledge-layer build step, in dependency order.
+
+    Addresses before install dates: the latter looks up canonical_id against
+    knowledge.canonical_addresses, which the former just rebuilt.
+    """
+    counts: dict[str, int] = {}
+    counts.update(build_canonical_addresses(session))
+    counts.update(build_install_dates(session))
+    return counts
+
+
 __all__ = [
     "AMBIGUOUS_GAP",
     "CONFIDENCE_THRESHOLD",
+    "INSTALL_DESCRIPTION_PREFIXES",
     "AddressCandidate",
     "ResolveAddressResult",
     "build_all",
     "build_canonical_addresses",
+    "build_install_dates",
+    "job_canonical_id",
     "resolve_address",
 ]
