@@ -8,10 +8,11 @@ to drop.
 from alembic import context
 from sqlalchemy import engine_from_config, pool
 
+# Importing the models is what registers them on Base.metadata.
+import switchboard_core.db.knowledge
 from switchboard_core.db.base import KNOWLEDGE_SCHEMA, SOURCE_SCHEMA, Base
 from switchboard_core.db.session import database_url
 
-# Importing the models is what registers them on Base.metadata.
 import switchboard_core.db.source  # noqa: F401  isort:skip
 
 config = context.config
