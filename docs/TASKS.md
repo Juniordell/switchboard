@@ -18,14 +18,14 @@ Work one at a time. Do not skip ahead. Each task ends with `ruff check` and
       by qualified name. Asserts the inverse too: the `invoices` model still
       carries `invoice_number`, so the guard cannot be passed by deleting the
       concept. Runs on every commit; see `docs/HARNESS.md` Layer 0.
-- [ ] T1.4 Idempotent loaders for jobs, invoices, customers, employees. No
+- [x] T1.4 Idempotent loaders for jobs, invoices, customers, employees. No
       field from the `.jsonl` is dropped, including ones empty in this export.
       Money stays in cents. The loader logs a WARNING for every value of
       `work_status`, `invoice.status` or `item.type` outside the known sets in
       `switchboard_core.db.source`, with a count, and loads it anyway: the
       schema has no CHECK constraints, and absence of a constraint must not
       become absence of visibility.
-- [ ] T1.5 `scripts/verify_load.py` asserting the measured shape in
+- [x] T1.5 `scripts/verify_load.py` asserting the measured shape in
       `docs/DATA.md`: 1,992 jobs · 6,954 notes · 1,700 invoices · 4,390 line
       items · 732 customers (683 homeowner / 49 business) · 23 employees ·
       1,390 address ids with 4 jobs null · 456 jobs without an invoice · 135
