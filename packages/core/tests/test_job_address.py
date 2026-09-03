@@ -5,7 +5,7 @@ what's needed to check against a real `knowledge.canonical_addresses`.
 
 from sqlalchemy import text
 
-from switchboard_core.knowledge import job_canonical_id
+from switchboard_core.knowledge import job_canonical_id, jobs_at_canonical_address
 
 
 def test_agrees_with_address_alias_on_every_job(db_session) -> None:
@@ -90,3 +90,29 @@ def test_does_not_resolve_the_garbage_address_id_job(db_session) -> None:
         job_canonical_id(row.address_street, row.address_street_line_2, row.address_zip)
         is None
     )
+
+
+def test_jobs_at_canonical_address_finds_both_paths(db_session) -> None:
+    """The 1,988 jobs with an address_id go through address_alias; the null
+    ones go through the direct computation. 46 Bougainvillea Glen Road has
+    one of each: job_489acf8ec56d... (null address_id) and at least one
+    normal job sharing the same canonical address.
+    """
+    canonical_id = job_canonical_id("46 Bougainvillea Glen Road", None, "33162")
+    job_ids = jobs_at_canonical_address(db_session, canonical_id)
+    assert "job_489acf8ec56d4145b47ea9ad24749f58" in job_ids
+    assert len(job_ids) >= 2
+
+
+def test_jobs_at_canonical_address_finds_the_orphan_by_its_own_computation(
+    db_session,
+) -> None:
+    """ "Orphan" means no `knowledge.canonical_addresses` row exists for this
+    key - it does not mean the job itself is unreachable. Passing the
+    orphan's own freshly computed canonical_id finds the orphan job, which
+    is self-consistent: `jobs_at_canonical_address` never queries
+    `canonical_addresses`, only jobs' own columns.
+    """
+    canonical_id = job_canonical_id("69 Plumeria Glen Drive", "Cottage 20 A", "33182")
+    job_ids = jobs_at_canonical_address(db_session, canonical_id)
+    assert job_ids == ["job_a8edd70d8b7c48928bce658029e854f1"]
