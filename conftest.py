@@ -44,3 +44,42 @@ def write_session(db_session):
         yield db_session
     finally:
         nested.rollback()
+
+
+@pytest.fixture(scope="session", autouse=True)
+def tool_call_log(tmp_path_factory):
+    """Capture every tool call this run produced, for Layer 4.
+
+    `docs/HARNESS.md`: Layer 4 measures **the tool call log produced by the
+    eval run that is executing**, not a log from somewhere else. There is no
+    ambient corpus of production calls in CI, and asserting against a
+    borrowed one produces a number that means nothing. So the suite records
+    its own calls and `evals/layer4.py` reads exactly those.
+    """
+    import contextlib
+    import json
+    import logging
+    import pathlib
+
+    records: list[dict] = []
+
+    class Collector(logging.Handler):
+        def emit(self, record: logging.LogRecord) -> None:
+            # A non-JSON line on this logger is not a tool call.
+            with contextlib.suppress(ValueError):
+                records.append(json.loads(record.getMessage()))
+
+    logger = logging.getLogger("switchboard_core.tools")
+    handler = Collector()
+    previous_level = logger.level
+    logger.addHandler(handler)
+    logger.setLevel(logging.INFO)
+    try:
+        yield records
+    finally:
+        logger.removeHandler(handler)
+        logger.setLevel(previous_level)
+        destination = (
+            pathlib.Path(__file__).parent / "evals" / "last_run_tool_calls.jsonl"
+        )
+        destination.write_text("".join(json.dumps(r) + "\n" for r in records))

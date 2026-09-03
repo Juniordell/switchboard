@@ -9,3 +9,6 @@ node_modules/
 dist/
 .pytest_cache/
 .ruff_cache/
+
+# Layer 4 reads the tool call log the run that produced it wrote.
+evals/last_run_tool_calls.jsonl

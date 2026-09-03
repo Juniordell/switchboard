@@ -160,7 +160,13 @@ def measure_latency(session, n_runs: int = 30) -> None:
         sql_ms.append((t2 - t1) * 1000)
 
     def pct(data: list[float], p: float) -> float:
-        return statistics.quantiles(data, n=100)[int(p) - 1]
+        # method="inclusive": the default extrapolates past the observed
+        # range on a sample this size, which can put a reported p95 above
+        # the largest number actually measured. The figures already
+        # published in docs/ARCHITECTURE.md were taken with the default and
+        # are therefore conservative by up to ~10% - the safe direction for
+        # a budget, but stated rather than left implicit.
+        return statistics.quantiles(data, n=100, method="inclusive")[int(p) - 1]
 
     print(f"=== latency over {n_runs} scoped searches ===")
     print(f"{'phase':<20}{'p50':>10}{'p95':>10}{'max':>10}   (ms)")
