@@ -1,17 +1,19 @@
 """Alembic environment.
 
-Both schemas are in scope, so ``include_schemas`` is on and autogenerate is
-told to ignore anything outside them - a stray table in ``public`` is not ours
-to drop.
+All three schemas are in scope, so ``include_schemas`` is on and autogenerate
+is told to ignore anything outside them - a stray table in ``public`` is not
+ours to drop.
 """
 
 from alembic import context
 from sqlalchemy import engine_from_config, pool
 
-from switchboard_core.db.base import KNOWLEDGE_SCHEMA, SOURCE_SCHEMA, Base
+# Importing the models is what registers them on Base.metadata.
+import switchboard_core.db.knowledge
+import switchboard_core.db.prose
+from switchboard_core.db.base import KNOWLEDGE_SCHEMA, PROSE_SCHEMA, SOURCE_SCHEMA, Base
 from switchboard_core.db.session import database_url
 
-# Importing the models is what registers them on Base.metadata.
 import switchboard_core.db.source  # noqa: F401  isort:skip
 
 config = context.config
@@ -19,7 +21,7 @@ config.set_main_option("sqlalchemy.url", database_url())
 
 target_metadata = Base.metadata
 
-MANAGED_SCHEMAS = {SOURCE_SCHEMA, KNOWLEDGE_SCHEMA}
+MANAGED_SCHEMAS = {SOURCE_SCHEMA, KNOWLEDGE_SCHEMA, PROSE_SCHEMA}
 
 
 def include_name(name: str | None, type_: str, _parent: object) -> bool:

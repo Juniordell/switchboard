@@ -8,7 +8,7 @@ here is shape.
 import pytest
 from sqlalchemy import BigInteger, Float, Numeric, Table
 
-from switchboard_core.db.base import KNOWLEDGE_SCHEMA, SOURCE_SCHEMA, Base
+from switchboard_core.db.base import SOURCE_SCHEMA, Base
 from switchboard_core.db.source import Job
 
 EXPECTED_TABLES = {
@@ -53,10 +53,14 @@ def test_every_source_table_is_registered() -> None:
     assert set(TABLES) == EXPECTED_TABLES
 
 
-def test_nothing_is_derived_yet() -> None:
-    """T1.3 creates the knowledge namespace but puts nothing in it."""
-    derived = [t for t in Base.metadata.tables.values() if t.schema == KNOWLEDGE_SCHEMA]
-    assert derived == []
+def test_no_source_table_lives_in_the_knowledge_schema() -> None:
+    """The inverse of `switchboard_core.db.knowledge`'s own schema guard: every
+    table this module defines belongs to `source`, none has drifted into
+    `knowledge`. `knowledge` itself is no longer empty as of T2.1
+    (`canonical_addresses`, `address_alias`) - see
+    `test_knowledge_address_schema.py` for its guards.
+    """
+    assert all(t.schema == SOURCE_SCHEMA for t in TABLES.values())
 
 
 @pytest.mark.parametrize(("table_name", "column_name"), sorted(MONEY_COLUMNS))

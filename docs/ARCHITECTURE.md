@@ -16,7 +16,7 @@ typed in an attic, and only retrieval finds that.
 |---|---|---|
 | Records | Jobs, customers, addresses, employees, invoices, items — loaded verbatim from `data/` | Never directly |
 | Entities | Canonical addresses and customers, `pg_trgm` index, alias table | `resolve_address`, `resolve_customer` — return candidates + confidence, never a silent guess |
-| Knowledge | Derived at load: `visit_history`, `warranty_status`, `install_date`, balances, callback chains | Typed SQL tools, no model in the path |
+| Knowledge | `install_date` materialised at load (the one table here that reduces many candidates to one); `visit_history`, `warranty_status`, callback chains and balances computed at query time — see "Derived knowledge returns rows, not prose" below for why | Typed SQL tools, no model in the path |
 | Prose | One chunk per note, `vector` + `tsvector`, scoped to canonical address and job | `search_notes(entity_id, query)` — hybrid, RRF, entity filter required |
 
 Loaders are idempotent. Derived tables always trace back to a source row.
@@ -27,24 +27,44 @@ See the join trap in `docs/DATA.md`.
 
 ## Addresses are canonical, not source ids
 
-The source address id is not a usable key. 1,390 ids cover 1,360 real
-addresses: 30 canonical addresses are split across 31 redundant ids, and 4 jobs
-have no address id at all while carrying a complete address.
+The source address id is not a usable key. 1,390 ids, one of them entirely
+blank, cover **1,337** real addresses over the 1,389 addressable ones: 51
+canonical addresses carry more than one redundant id, and 4 jobs have no
+address id at all while three of them carry a complete address.
 
-**Canonical key** = normalised `street` + normalised `street_line_2` + `zip`.
-Normalisation is strip + casefold, with `null` and `""` collapsing to the same
-empty value. City is deliberately excluded: the anonymisation relocated cities
-inconsistently, so zip 33162 carries 7 city names and the same street and zip
-appears as both "Key Biscayne" and "Miami Beach".
+**Canonical key** = normalised `street` + normalised `street_line_2` + `zip`,
+built by `switchboard_core.knowledge.address_normalize` (T2.1). Normalisation
+folds case, whitespace, `null`/`""` on the unit, this dataset's
+abbreviation-vs-spelled-out variance (toward the abbreviated form — a caller's
+utterance is usually truncated, not just abbreviated, and a shorter target
+loses less trigram overlap against a query that stops early), and a spoken
+house number into digits. City is deliberately excluded: the anonymisation
+relocated cities inconsistently, so zip 33162 carries 7 city names and the
+same street and zip appears as both "Key Biscayne" and "Miami Beach".
 
-- `address_alias(address_id → canonical_id)` is populated at load. The source
-  id becomes an alias, never a key.
-- The 4 null-id jobs still resolve, because the canonical key is derived from
-  the address string, which is always present.
-- `resolve_address` returns `canonical_id`.
-- `visit_history` and `warranty_status` are keyed on `canonical_id`.
+- `address_alias(address_id → canonical_id)` is populated at load, and rebuilt
+  from scratch every run rather than upserted in place: `canonical_id` is
+  derived from code, not copied from a source id, so it changes whenever the
+  normaliser does, and an upsert never removes a primary key an incoming batch
+  stopped producing. `address_alias.address_id` is stable and upserts safely.
+- `job_canonical_id` (T2.3a) resolves any job to a canonical address directly
+  from the job's own flattened `address_street` / `address_street_line_2` /
+  `address_zip` columns (T1.3), the same fields used to build
+  `canonical_addresses` — no join through `address_alias`, since `canonical_id`
+  is a pure function of those three fields. This is what three of the four
+  null-address-id jobs need: their street matches an existing canonical group,
+  so they resolve exactly like any job with an id. The fourth
+  (`job_a8edd70d8b7c`, 69 Plumeria Glen Drive) does not: no `customer_addresses`
+  row carries that street at all, so it correctly resolves to nothing.
+  Verified to agree with `address_alias` on all 1,992 jobs with zero
+  mismatches. Every derived function that needs "which address is this job
+  at" — `install_dates`, `get_visit_history`, `evaluate_warranty_status`,
+  `find_callback_source` — uses this, not a join on `address_id`.
+- `resolve_address` returns `canonical_id`, never `address.id`.
+- `get_visit_history` and `evaluate_warranty_status` are both keyed on
+  `canonical_id`, as of T2.2 and T2.3b.
 
-Without this, "when were you last here" answers from half the history at 30
+Without this, "when were you last here" answers from half the history at 51
 addresses, and reports no error while doing it.
 
 ## Derived knowledge returns rows, not prose
@@ -62,6 +82,16 @@ question. Cheap, current, and auditable against the rows it was given.
 Because a job may have up to 4 invoices and 456 jobs have none, invoice numbers
 and balances are aggregated per visit, and a visit with no invoice is a normal
 row, not a missing one.
+
+**`get_visit_history` is computed at query time, not a materialised table** —
+same shape as `resolve_address` and `evaluate_warranty_status`, and for the
+same reason: it keeps every job as its own row rather than reducing many
+candidates to one, so there is nothing to gain from precomputing it. A
+canonical address has 1.4-1.5 jobs on average; the join is trivial live.
+`find_callback_source` and `get_customer_balance` (T2.4) are the same shape.
+`install_dates` is the one exception, precomputed at load, because it *does*
+reduce: many candidate install jobs at an address down to the single most
+recent one.
 
 ## Retrieval
 
@@ -143,29 +173,47 @@ hybrid retrieval turn and an indexed lookup turn are not the same operation.
 | Tool class | Budget | Filler |
 |---|---|---|
 | SQL — `resolve_*`, `get_visit_history`, `get_warranty_status`, `get_schedule`, `find_availability` | **40 ms** | no |
-| Hybrid retrieval — `search_notes` | **250 ms** | **yes, by default** |
+| Hybrid retrieval — `search_notes` | **1,300 ms** (measured p95; see below) | **yes, by default** |
 | Web — `web_search` | 1,500 ms | yes, by default |
 
 The SQL path lands at 770 ms against a target of 800. It is an indexed lookup
 against precomputed tables, which is why 40 ms is realistic.
 
-`search_notes` cannot make that target and should not pretend to. It embeds the
-caller's utterance before it touches Postgres — a network round trip that is
-serial with everything after it — then runs `ts_rank_cd`, pgvector and the
-fusion. Its budget is 250 ms and it **speaks filler at dispatch time, by
-default rather than by exception**, so time to first word stays at the 730 ms
-fixed cost and the answer follows behind it.
+**`search_notes`'s budget is measured, not the placeholder 250 ms this section
+used to guess.** Real numbers, `scripts/prose_measurements.py`, 30 scoped
+searches against the live corpus, embedding call and Postgres kept separate
+because only one of them is a network call to a service this codebase doesn't
+operate:
+
+| Phase | p50 | p95 | max |
+|---|---|---|---|
+| Embedding call (OpenAI, `text-embedding-3-small`) | 463 ms | **1,298 ms** | 2,029 ms |
+| Postgres (the RRF query, entity-filtered) | 2.3 ms | 4.7 ms | 6.4 ms |
+
+The embedding call is the entire budget, by roughly 280x at p95 - Postgres was
+never the risk the 250 ms guess implied. `search_notes` **speaks filler at
+dispatch time, by default rather than by exception**, so time to first word
+stays at the 730 ms fixed cost and the answer follows behind it - a guess that
+turned out to be the right call once measured, not a coincidence: nothing
+about an entity-filtered 3-10 row Postgres query was ever going to be the slow
+part, and the fix for the actual slow part (a synchronous network round trip
+to OpenAI) is the same fix that was already in place.
 
 Baselines are **measured, not asserted**. The tool contract logs `duration_ms`
 from T3.1 onward; `evals/baseline.json` is populated from those logs, and
 Layer 4 asserts p95 per tool class against it. A budget nobody has measured is
 a number that gets edited downward until it means nothing.
 
-Open question to settle with Layer 1, not by assumption: after the entity
-filter the candidate set is 3–10 rows, and dense retrieval may not be earning
-its keep against `ts_rank_cd` plus trigram at that size. Dropping the dense leg
-removes the embedding round trip from the hot path entirely. Measure before
-building the full T2.5.
+**Settled, not open**: after the entity filter the candidate set is 3-10 rows,
+and the question was whether dense retrieval earns its keep against
+`ts_rank_cd` alone at that size. Measured against 20 real, entity-scoped
+queries phrased as a caller would speak them (`scripts/prose_measurements.py`;
+see `docs/DECISIONS.md`): the hybrid top result and the lexical-only top
+result **agreed on only 4 of 20** — in 14 of the 16 disagreements,
+`ts_rank_cd` matched **no note at all**, because `plainto_tsquery` requires
+every significant term to appear and natural speech rarely shares exact
+stemmed vocabulary with a tech's shorthand. The hybrid leg is kept, and now
+for a measured reason instead of an assumed one.
 
 ## Why cascade rather than speech-to-speech
 

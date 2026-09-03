@@ -131,25 +131,45 @@ The dataset does not have a clean address key.
   with no address id and one row of empty strings that the customer listing
   does not. Three different denominators, three different true numbers - name
   the denominator whenever quoting one.
-- No address id ever carries two different streets. The reverse happens:
-  **30 canonical addresses are split across 31 redundant address ids.**
+- No address id ever carries two different streets. The reverse happens: one
+  physical address can carry several redundant ids.
 - `street_line_2` is `null` on 1,171 jobs, the **empty string** on 267, and set
   on 554. Null and `""` are the same case and must normalise to the same value.
 - `city` is noise. The anonymisation relocated cities inconsistently: zip
   33162 appears with 7 different city names, 33155 with 5. The same street and
   zip appears as both "Key Biscayne" and "Miami Beach". **City is not part of
   the key.**
+- One row (`adr_c6efbfa7...`) has every field blank — no street, no city, no
+  zip. It carries no address and is excluded from canonicalisation entirely
+  rather than treated as a real, matchable address; see below.
 
-**Canonical key** = normalised `street` + normalised `street_line_2` + `zip`,
-where normalisation is strip + casefold and `null` and `""` collapse to the
-same empty value. This yields **1,360 canonical addresses**, collapsing 30
-groups that the raw address id splits. Including city and state in the key
-instead yields 1,365 and only catches 25 of those groups — the 5 it misses are
-the city-label collisions above, and they are genuine merges.
+**Canonical key**, as built in `switchboard_core.knowledge.address_normalize`
+(T2.1), is normalised `street` + normalised `street_line_2` + `zip`.
+Normalisation is more than strip + casefold: it also folds this dataset's
+abbreviation-vs-spelled-out variance (`Rd`/`Road`, `Wy`/`Way`, `N`/`North`, and
+the rest of the table in that module) toward the **abbreviated** form, and
+converts a caller's spoken house number into digits (`"eighty nine"` →
+`"89"`). This yields **1,337 canonical addresses** over the 1,389 addressable
+ids (1,390 minus the one blank row above).
 
-`address_alias(address_id → canonical_id)` is populated at load.
-`resolve_address` returns `canonical_id`. `visit_history` is keyed on
-`canonical_id`. See `docs/ARCHITECTURE.md`.
+That is fewer than the 1,359 a bare strip-and-casefold key would produce (no
+suffix or directional folding) — the richer normalisation correctly merges
+pairs a plain casefold treats as distinct, such as "220 Saltgrass Harbor Dr"
+and "220 Saltgrass Harbor Drive". **51 canonical addresses carry more than one
+redundant id**, one of them three deep (a data quirk, not a bug — a stray
+casing difference in a unit number, or the same street relocated to a
+different fictional city label by the anonymiser). Abbreviated, not
+spelled-out, is the canonical *direction* specifically because a caller's
+utterance is normally **truncated**, not merely abbreviated — "eighty nine
+harbor light shores" never says "Boulevard" or "West" at all. A shorter
+canonical target loses less of its trigram overlap against a query that stops
+early; the module docstring has the measured numbers behind that choice.
+
+`address_alias(address_id → canonical_id)` is populated at load, rebuilt from
+scratch on every run rather than upserted in place — see
+`build_addresses.py`'s module docstring for why a derived key needs that.
+`resolve_address` returns `canonical_id`, never `address.id`. `visit_history`
+will be keyed on `canonical_id` from T2.2. See `docs/ARCHITECTURE.md`.
 
 ## Notes have no date
 
@@ -227,15 +247,49 @@ say that is what you did.
 
 ### Derived install date
 
-There is no install date in the source. It is derived: the job at the same
-canonical address whose `description` identifies an installation, taking its
-`work_timestamps.completed_at` as the install date. Where several qualify, the
-most recent one before the job in question. Where none qualifies, level 3
-below cannot fire and the answer falls through.
+There is no install date in the source. Built in `knowledge.install_dates`
+(T2.3a): among jobs at the same canonical address whose `description`
+identifies a whole-system install, the most recent `completed_at` becomes that
+address's install date.
 
-This derivation is its own build step — `docs/TASKS.md` T2.3a — because the
-`1 Yr Labor Warranty` tag sits on the **install** job, not on the service job
-the caller is phoning about.
+**Not every "install" in the text counts.** Naive matching on the word
+catches part- and fixture-level noise — "Install New Angle Stop", "Customer
+supplied toilet install" — that has nothing to do with an HVAC system. The
+three prefixes that do, checked against invoice amount and tags before being
+trusted:
+
+| Prefix | Jobs | Median invoice |
+|---|---:|---:|
+| `System Installation` | 38 | $12,295 |
+| `New System Installation` | 34 | $10,465 |
+| `New Construction` | 9 | $27,316 |
+| *(reference)* `Service Calls - Repairs...` | 100 | $456 |
+
+— an order of magnitude apart, and the matched jobs carry `Registration
+Needed` (32) / `Registration Complete` (14), manufacturer equipment
+registration that only makes sense right after installing new equipment.
+Two adjacent, install-word-containing prefixes were checked by reading their
+notes and **excluded**: `Zone System Installation` ("zones installed and
+operational" — dampers added to an *existing* system) and `System Relocation
+- System Installation` ("Air handler is relocated" — the *existing* unit
+moved). Neither starts a new install clock.
+
+**Coverage is thin, and that is expected, not a bug: only 62 of the 1,337
+canonical addresses get an install date.** An install is rare inside a
+six-month export; most addresses' equipment predates the window. Level 3
+below falls through for the other 1,275.
+
+**Correction — the `1 Yr Labor Warranty` tag does not sit on the install
+job.** An earlier revision of this document claimed it did; checking all 53
+tagged jobs against the install-job filter above finds **zero** overlap. The
+tag sits on **service** jobs — the visit where staff applied a warranty
+discount, not the installation itself. One tagged job's description literally
+reads: *"Service & Repair Fee - Standard — $0 fee as unit is under a 1 year
+labor warranty"*. Level 3's rule below is corrected accordingly: it fires from
+the **derived install date's recency**, not from finding the tag on a
+particular job, because there is no job where that tag and an install
+description co-occur to find. The tag remains useful as corroborating
+evidence for T2.3b to weigh, just not as a precondition.
 
 ### Precedence rule
 
@@ -245,7 +299,7 @@ Implement exactly this order. **Always return the basis with the answer.**
 |---|---|---|---|
 | 1 | A note stating an explicit warranty term ("under warranty until 2030", a named term) | **high** | Covered per that term. Quote the note, attribute it to the tech, and give the **job's service date**. |
 | 2 | An invoice line item matching `ILIKE '%warrant%'` | **high, historical** | This part *was* covered by the manufacturer on that visit. Cite the invoice number and its service date. Historical evidence of coverage, not proof of coverage today. |
-| 3 | `1 Yr Labor Warranty` tag on the **derived install job** at this canonical address, with `completed_at` within 12 months | **high** | Labor covered. Cite the install job number and the install date. |
+| 3 | `knowledge.install_dates` has a row for this canonical address, with `install_date` within 12 months | **high** | Labor covered. Cite the install job number and the install date. A `1 Yr Labor Warranty` tag on a later service job at the same address is corroborating, not required — see "Derived install date" above for why the tag cannot be the trigger. **Locked in `evaluate_level_3` (T2.3b's first piece, built ahead of the rest): no row, or a row older than 12 months, is the identical outcome — `NO_VERDICT`, never a denial — because absence of a derivable install date is not evidence of absence of coverage. 95.4% of canonical addresses have no row at all; most equipment here predates the six-month export.** |
 | 4 | `Warranty Claim` or `Registration Needed` on a job at this address | **medium** | A claim is open or registration is pending. Say what is in flight, do not assert an outcome, and **offer a human**. |
 | 5 | `Warranty Complete` | **neutral** | Means the warranty *work was finished*, not that coverage ended. It is never evidence against coverage. It contributes context only; on its own it does not answer, and the answer falls to level 6. |
 | 6 | Nothing | **unknown** | Not known. Offer to have someone check. |
@@ -259,6 +313,27 @@ covered customer they are not covered.
 
 Levels **4, 5 and 6** are spoken as uncertain and offered for human check. See
 the refusal rules in `docs/AGENTS.md`.
+
+### Implemented in `evaluate_warranty_status` (T2.3b)
+
+**Level 1 is the only level that can return `covered=no`.** Levels 2 and 3
+only ever assert coverage or step aside; level 4 asserts neither ("in
+flight"); level 5 never independently returns a verdict. A denial always
+traces back to a tech's own words in a note.
+
+Level 1's note search caught a real classifier bug worth recording here as a
+warning to future editors of that pattern list: a plain check for "not under
+warranty" also fires on **conditional** phrasing - "...recommend replacing to
+get a warranty **if it is not under warranty** it is low..." is a hedge about
+refrigerant charge, not an assertion about the unit. 21 of 375
+warranty-mentioning notes in this dataset are this shape. See
+`warranty_notes.py`.
+
+Equipment scoping is a strict filter, not a preference: when the caller names
+equipment, only notes and line items that mention it are considered at levels
+1 and 2, and a mismatch falls through rather than answering about the wrong
+part. Levels 3-5 are equipment-agnostic (labor warranty and office tags are
+address-level facts, not per-part ones).
 
 ## Frequent terms in notes
 

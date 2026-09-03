@@ -48,6 +48,13 @@ ALLOWED_SCOPES = frozenset(
         ("packages/core/src/switchboard_core/load/loaders.py", "load_jobs"),
         # Reading and writing the invoice's own number.
         ("packages/core/src/switchboard_core/load/loaders.py", "load_invoices"),
+        # Citing an invoice as warranty evidence (level 2) - the invoice's
+        # own number, read from an invoices row joined on job_id, never a
+        # job's job_number.
+        (
+            "packages/core/src/switchboard_core/knowledge/warranty_status.py",
+            "_level_2_invoice_items",
+        ),
     }
 )
 

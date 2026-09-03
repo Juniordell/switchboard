@@ -35,31 +35,96 @@ Work one at a time. Do not skip ahead. Each task ends with `ruff check` and
       without a tech · 23 distinct tags
 
 ## Phase 2 — Knowledge
-- [ ] T2.1 Address canonicalisation: normalised `street` + `street_line_2` +
-      `zip` (strip + casefold, `null` == `""`, city excluded), `address_alias`
-      table, `pg_trgm` index, `resolve_address` returning `canonical_id`.
-      Asserts 1,360 canonical addresses over 1,390 ids, and that the 4 null-id
-      jobs resolve.
-- [ ] T2.2 `visit_history` derived table keyed on `canonical_id`, returning
-      structured rows only — no generated prose. Aggregates the 0-to-4 invoices
-      a job may have.
-- [ ] T2.3a **Derived install date**: for each canonical address, the
-      installation job identified by `description`, taking
-      `work_timestamps.completed_at` as the install date, most recent first.
-      There is no install date field in the source; level 3 of the warranty
-      precedence rule cannot be built without this, and the
-      `1 Yr Labor Warranty` tag sits on the install job rather than on the
-      service job the caller is phoning about.
-- [ ] T2.3b `warranty_status` derived table implementing the six-level
-      precedence rule in `docs/DATA.md`, scoped to `canonical_id` plus named
-      equipment, always returning the basis and the level. Line item match is
-      `ILIKE '%warrant%'` (64 items), with the exact prefix as the parsed case
-      and the 3 named exceptions handled. `Warranty Complete` is neutral.
-- [ ] T2.4 Callback chain linking, outstanding balances
-- [ ] T2.5 Note chunking, embeddings, `tsvector`, RRF hybrid query. Every
-      returned date is the job's service date, in a `job_service_date` field.
-      Whether the dense leg is kept is decided by measurement in T4.2, not
-      assumed — see `docs/ARCHITECTURE.md`.
+- [x] T2.1 Address canonicalisation: normalised `street` + `street_line_2` +
+      `zip`, city excluded, in `switchboard_core.knowledge.address_normalize`.
+      Normalisation folds case, whitespace, `null` == `""`, abbreviation
+      variance toward the abbreviated form, and spoken numbers to digits.
+      `knowledge.canonical_addresses` (1,337 rows) + `knowledge.address_alias`
+      (address_id → canonical_id, rebuilt from scratch each run, not upserted
+      — canonical_id is derived from code, address_id is copied from source).
+      `pg_trgm` GIN index on `street_normalized`. `resolve_address` returns up
+      to 3 candidates with scores and `canonical_id`, never `address_id`;
+      `must_ask` on score < 0.55 or a < 0.05 gap to the runner-up. 3 of the 4
+      null-address-id jobs resolve via their raw street; the 4th has no
+      matching `customer_addresses` row and stays permanently unreachable via
+      `resolve_address` — there is no address record to canonicalise from, so
+      no later task closes this, only `job_canonical_id` computed directly
+      from the job's own columns reaches it (T2.3a). 54 tests,
+      including the hard requirement ("eighty nine harbor light shores" → 89
+      Harborlight Shores Blvd W) and a real duplicate-id pair converging on
+      one `canonical_id`.
+- [x] T2.2 `get_visit_history`, a query-time function keyed on `canonical_id`
+      (same shape as `resolve_address` and `evaluate_warranty_status`, and for
+      the same reason — no reduction to precompute, ~1.4 jobs per address on
+      average), returning structured rows only: job id, `job_number` (never
+      `invoice_number` — CLAUDE.md hard rule 8, joined only on `job_id`),
+      service date, techs, description, aggregated invoice numbers, balance,
+      and the job it was a callback from. Ordered most recent first. 9 tests,
+      including a fixture whose `job_number` and `invoice_numbers` are visibly
+      different values, proving the join never confuses them.
+- [x] T2.3a **Derived install date**: `knowledge.install_dates`, one row per
+      canonical address, from jobs whose `description` starts with
+      `System Installation`, `New System Installation` or `New Construction`
+      (validated by invoice amount — $10k-27k median vs $456 for an ordinary
+      repair — and `Registration Needed`/`Complete` tags; `Zone System
+      Installation` and `System Relocation` excluded after reading their
+      notes, neither is a new system going in), most recent `completed_at`
+      per address. Only 62 of 1,337 canonical addresses get a row — an
+      install is rare in a six-month export, and level 3 of the warranty
+      precedence rule falls through for the rest, expected not broken.
+      `job_canonical_id` resolves a job to its canonical address directly
+      from the job's own flattened address columns, no `address_alias` join,
+      reused by every derived table from here on. Corrected a wrong claim in
+      docs/DATA.md along the way: the `1 Yr Labor Warranty` tag sits on
+      **service** jobs, not install jobs — zero of the 53 tagged jobs match
+      an install description. `knowledge.install_dates.canonical_id` cascades
+      on delete from `canonical_addresses`, needed once a second table
+      derived by a different build step references the same rebuilt-every-run
+      parent.
+- [x] T2.3b `evaluate_warranty_status`, the six-level precedence rule from
+      `docs/DATA.md`, scoped to `canonical_id` plus named equipment, never a
+      job. A typed function reading `source` and `knowledge.install_dates` at
+      query time, not a materialised table - same shape as `resolve_address`
+      (T2.1), and for the same reason: level 2's line-item match and level
+      1's note text are lexical checks over an equipment filter supplied at
+      call time, not something a precomputed table can be parameterised by.
+      Level 3 delegates to `evaluate_level_3` (built ahead of this task).
+      Level 1 is the only level that can return `covered=no`; levels 2 and 3
+      never deny, and level 5 (`Warranty Complete`) never independently
+      returns a verdict - proven with one of the 24 real tagged jobs, alone
+      at its address, landing on level 6 `unknown`, never level 5 `no`.
+      Returns `covered` (yes/no/unknown, never a bare bool), `level` (1-6),
+      `basis`, `evidence` (one job, invoice, or note), `confidence`. 38 tests
+      total across the three new modules, all against real fixtures found by
+      scanning the loaded database for a canonical address whose only
+      warranty signal is the level under test.
+- [x] T2.4 `find_callback_source` (which job a callback-tagged job was about
+      — install-callback tags link to `knowledge.install_dates`'s job when
+      the address has one, else the most recent completed prior job at the
+      same address; measured against all 101 real callback-tagged jobs: 8 via
+      install, 53 via prior job, 40 with no findable candidate) and
+      `get_customer_balance` (`SUM(job.outstanding_balance)` per
+      `customer_id`, verified equal to summing `invoice.due_amount`
+      independently — no address canonicalisation needed, `customer_id` is
+      already a clean source id). 10 tests.
+- [x] T2.5 Note chunking, embeddings, `tsvector`, RRF hybrid query.
+      `prose.note_chunks` (`chunk_notes`, free, part of every load — 6,954
+      rows, one per note, no split), `content_tsv` a Postgres-generated
+      column, `embedding` filled separately (`embed_pending`, paid,
+      `python -m switchboard_core.prose` — all 6,954 notes embedded),
+      `search_notes`/`rank_candidates` (the RRF query, one SQL statement,
+      `entity_id` required and positional — no default, not `Optional`). RRF
+      math verified exact against the documented `1/(60+rank)` formula with
+      synthetic orthogonal vectors before any real embedding existed.
+      **Measured, not assumed** (`scripts/prose_measurements.py`, 30 scoped
+      searches, 20 real entity-scoped queries): p95 latency is 1,298 ms for
+      the embedding call against 4.7 ms for Postgres — the embedding call is
+      the entire budget, by ~280x, confirming the filler-by-default design
+      already in `docs/ARCHITECTURE.md` for the right reason. Hybrid RRF and
+      `ts_rank_cd` alone agreed on the top result only 4/20 times; 14 of the
+      16 disagreements were `ts_rank_cd` matching **no note at all** against
+      natural caller phrasing. The dense leg stays, now for a measured
+      reason. See `docs/DECISIONS.md`.
 
 ## Phase 3 — Tools
 - [ ] T3.1 Tool contract base: Pydantic in/out, logging decorator with
@@ -84,7 +149,9 @@ Work one at a time. Do not skip ahead. Each task ends with `ruff check` and
       `job_28e341b2…` (job number 3611, where invoice 3611 is Charlene
       Whitaker's). See `docs/HARNESS.md`.
 - [ ] T4.2 Runner asserting tool sequence and argument shape against T4.0.
-      Also settles the dense-vs-lexical question for `search_notes`.
+      Re-runs the dense-vs-lexical comparison against the real golden set as
+      an ongoing regression check — T2.5 already settled the question itself
+      (4/20 agreement on a real stand-in set; see `docs/DECISIONS.md`).
 - [ ] T4.3 `evals/baseline.json` measured from the T3.1 `duration_ms` log, per
       tool class, plus a GitHub Actions workflow that fails on regression.
       Layers 0 and 1 and Layer 4 on every commit; Layer 4 reads the log the

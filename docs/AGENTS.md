@@ -37,11 +37,12 @@ write-holding agent in order to be handed to a person. The hard rule in
 
 | Tool | Agent | Kind | Contract |
 |---|---|---|---|
-| `resolve_address` | Triage | SQL | Normalise spoken street, `pg_trgm` similarity over 1,360 canonical addresses. Returns up to 3 candidates with scores and **`canonical_id`**, never a source `address_id`. Below 0.55 → agent must ask, never guess. Returns address candidates only: no history, no balance, no appointment. |
+| `resolve_address` | Triage | SQL | Normalise spoken street, `pg_trgm` similarity over 1,337 canonical addresses. Returns up to 3 candidates with scores and **`canonical_id`**, never a source `address_id`. `must_ask=true` — ask, never guess — when the top score is below 0.55, **or** when it and the runner-up are within 0.05 of each other even if both individually clear 0.55. Returns address candidates only: no history, no balance, no appointment. |
 | `resolve_customer` | Triage | SQL | By name, company, or resolved address. Same candidate + confidence shape. Returns name and kind only. `kind` is unreliable — see below. |
 | `identify_caller_role` | Triage | logic | homeowner / property_manager / tech / owner. Determines which agent takes over and which tools exist. |
-| `get_visit_history` | Service | SQL | Structured rows from `visit_history` for a **`canonical_id`**: service date, tech, description, job number, invoice numbers, outstanding balance. Ordered, so "last" is a fact. No generated prose — the agent summarises at speaking time. Aggregates the 0-to-4 invoices a job may have. |
+| `get_visit_history` | Service | SQL | Structured rows from `get_visit_history` for a **`canonical_id`**: job id, `job_number` (never `invoice_number` — joined on `job_id` only), service date, techs, description, invoice numbers, outstanding balance, and `callback_from_job_id` if this visit was a callback about an earlier one. Ordered, so "last" is a fact. No generated prose — the agent summarises at speaking time. Aggregates the 0-to-4 invoices a job may have. |
 | `get_warranty_status` | Service | SQL | Derived per the precedence rule in `docs/DATA.md`, scoped to a `canonical_id` plus the equipment the caller named. **Always returns the basis and the level**, never a bare yes/no. |
+| `get_customer_balance` | Service | SQL | `SUM(job.outstanding_balance)` across every job for a `customer_id` — a customer total, not scoped to an address. Zero, not an error, for a customer with no jobs. |
 | `search_notes` | Service | hybrid | `search_notes(entity_id, query)`. Entity id is required and positional. Returns `note_id`, `snippet`, and **`job_service_date`**. See citation rules below. |
 | `get_schedule` | Service | SQL | Today or a date range, scoped to caller role. A homeowner may only see their own jobs. Excludes stale scheduled jobs — see `docs/SCOPE.md`. |
 | `web_search` | Service | web | Weather, model numbers, supplier hours. Always returns the source. Try `search_notes` first for anything the company may already know. |
@@ -87,6 +88,10 @@ disagree, it asks.
 
 ## Refusal rules
 
+- `resolve_address` below 0.55, or two candidates within 0.05 of each other,
+  are both "ask" — a caller who trails off before the house number can leave
+  two real addresses individually confident and jointly indistinguishable, and
+  that is not a case for a guess either. See `docs/DECISIONS.md`.
 - Warranty answers at **levels 4, 5 and 6** of the precedence rule are spoken
   as uncertain and offered for human check. Levels 1, 2 and 3 are stated as
   facts with their basis. Level 2 is stated as historical: the part *was*

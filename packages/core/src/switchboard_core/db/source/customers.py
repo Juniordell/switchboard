@@ -2,7 +2,7 @@
 
 import datetime
 
-from sqlalchemy import DateTime, Float, ForeignKey, Index, String
+from sqlalchemy import DateTime, Float, ForeignKey, Index, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from switchboard_core.db.base import SOURCE_SCHEMA, Base
@@ -50,11 +50,18 @@ class CustomerAddress(Base):
     source's address listing, not a deduplicated address entity: the source has
     no standalone address record, and building one is the canonicalisation in
     T2.1.
+
+    ``address_id`` is unique on its own, not only as part of the composite
+    primary key: the source mints one per customer-address occurrence, and all
+    1,390 rows carry a distinct value, verified in T1.3. The explicit
+    constraint (replacing a plain index of the same column) is what lets
+    ``knowledge.address_alias.address_id`` be a real foreign key rather than a
+    reference the loader merely promises to keep honest.
     """
 
     __tablename__ = "customer_addresses"
     __table_args__ = (
-        Index("ix_customer_addresses_address_id", "address_id"),
+        UniqueConstraint("address_id"),
         {"schema": SOURCE_SCHEMA},
     )
 
