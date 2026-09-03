@@ -4,7 +4,10 @@ version = "0.1.0"
 description = "Shared domain library: records, derived knowledge and tool implementations"
 requires-python = ">=3.12,<3.13"
 dependencies = [
+    "alembic==1.19.1",
+    "psycopg[binary]==3.3.5",
     "pydantic==2.13.5",
+    "sqlalchemy==2.0.52",
 ]
 
 [build-system]
