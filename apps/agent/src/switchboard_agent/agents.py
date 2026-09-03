@@ -172,6 +172,25 @@ those, call handoff_to_dispatch. Do not promise the change yourself first.
         self.canonical_id = canonical_id
         self.customer_id = customer_id
 
+    async def on_enter(self) -> None:
+        """Pick the conversation up mid-sentence.
+
+        The second real call left 29 seconds of silence here: Triage was
+        told not to narrate the handoff, and nothing on this side spoke, so
+        the caller was talking to a dead line until they said "Hello?".
+        A handoff the caller can hear is a bug; a handoff they cannot hear
+        at all is a worse one.
+        """
+        await self.session.generate_reply(
+            instructions=(
+                "Answer the question they already asked, using the ids you "
+                "now have. Do not greet them again and do not mention any "
+                "transfer - as far as the caller knows this is the same "
+                "conversation. If they have not asked anything yet, ask what "
+                "you can help with."
+            )
+        )
+
     @function_tool
     async def handoff_to_dispatch(self) -> "Agent":
         """Hand over when the caller wants to book, move or annotate work."""
@@ -213,6 +232,15 @@ Sunday and after-hours are not yours to book: transfer instead.
         )
         self.canonical_id = canonical_id
         self.customer_id = customer_id
+
+    async def on_enter(self) -> None:
+        await self.session.generate_reply(
+            instructions=(
+                "Carry on with what they asked for. Do not greet them again "
+                "and do not mention a transfer. If they want an appointment, "
+                "offer times before writing anything."
+            )
+        )
 
     @function_tool
     async def start_booking(self, description: str = "") -> str:

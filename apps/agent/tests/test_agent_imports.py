@@ -96,3 +96,25 @@ class TestThePipelineIsCascade:
         assert "/" in main.STT_MODEL
         assert "/" in main.LLM_MODEL
         assert "/" in main.TTS_MODEL
+
+
+class TestHandoffsDoNotLeaveDeadAir:
+    """The second real call left 29 seconds of silence after the handoff:
+    Triage was told not to narrate it and nothing on the other side spoke.
+    Every agent a caller can be handed *to* must open its own turn."""
+
+    def test_service_speaks_on_arrival(self) -> None:
+        from switchboard_agent.agents import ServiceAgent
+
+        assert "on_enter" in ServiceAgent.__dict__
+
+    def test_dispatch_speaks_on_arrival(self) -> None:
+        from switchboard_agent.agents import DispatchAgent
+
+        assert "on_enter" in DispatchAgent.__dict__
+
+    def test_triage_does_not_need_one(self) -> None:
+        """Nobody is handed to Triage; the entrypoint greets for it."""
+        from switchboard_agent.agents import TriageAgent
+
+        assert "on_enter" not in TriageAgent.__dict__

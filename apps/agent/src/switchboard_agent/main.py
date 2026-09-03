@@ -65,9 +65,16 @@ LLM_MODEL = "openai/gpt-4o-mini"
 TTS_MODEL = "inworld/inworld-tts-2"
 TTS_VOICE = "Ashley"
 
-#: Seconds. Raised from the 0.3 default after a real call answered a
-#: half-finished question. See the note at the session below.
-MIN_ENDPOINTING_DELAY = 0.8
+#: Seconds before a turn is committed. Two real calls answered
+#: half-finished questions - "When were" scored 0.87 on end-of-turn, "Am I
+#: still on the" scored 0.94 - so the detector's confidence is not the thing
+#: to trust here. This buys the caller a pause between the question and the
+#: address, and it is a genuine trade: every turn now waits this much longer
+#: before the agent starts speaking.
+ENDPOINTING_MIN_DELAY = 1.0
+
+#: How long a turn the detector is unsure about may wait.
+ENDPOINTING_MAX_DELAY = 4.0
 
 server = AgentServer()
 
@@ -84,11 +91,14 @@ async def entrypoint(ctx: JobContext) -> None:
         llm=inference.LLM(model=LLM_MODEL),
         tts=inference.TTS(model=TTS_MODEL, voice=TTS_VOICE),
         stt_context_options={"keyterms": KEYTERMS},
-        # The first real call cut a caller off mid-sentence: "When were"
-        # scored 0.87 on end-of-turn against a 0.56 threshold, and the agent
-        # answered a fragment. Callers on a phone pause between the question
-        # and the address; this buys them that pause.
-        min_endpointing_delay=MIN_ENDPOINTING_DELAY,
+        # min_endpointing_delay is deprecated in 1.7.1 in favour of this.
+        turn_handling={
+            "endpointing": {
+                "mode": "dynamic",
+                "min_delay": ENDPOINTING_MIN_DELAY,
+                "max_delay": ENDPOINTING_MAX_DELAY,
+            }
+        },
     )
 
     await session.start(
