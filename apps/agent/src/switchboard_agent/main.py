@@ -32,10 +32,10 @@ from livekit.agents import (
     AgentServer,
     AgentSession,
     JobContext,
-    RoomInputOptions,
     cli,
     inference,
 )
+from livekit.agents.voice.room_io import RoomOptions
 
 from switchboard_agent.agents import TriageAgent
 
@@ -65,6 +65,10 @@ LLM_MODEL = "openai/gpt-4o-mini"
 TTS_MODEL = "inworld/inworld-tts-2"
 TTS_VOICE = "Ashley"
 
+#: Seconds. Raised from the 0.3 default after a real call answered a
+#: half-finished question. See the note at the session below.
+MIN_ENDPOINTING_DELAY = 0.8
+
 server = AgentServer()
 
 
@@ -80,12 +84,17 @@ async def entrypoint(ctx: JobContext) -> None:
         llm=inference.LLM(model=LLM_MODEL),
         tts=inference.TTS(model=TTS_MODEL, voice=TTS_VOICE),
         stt_context_options={"keyterms": KEYTERMS},
+        # The first real call cut a caller off mid-sentence: "When were"
+        # scored 0.87 on end-of-turn against a 0.56 threshold, and the agent
+        # answered a fragment. Callers on a phone pause between the question
+        # and the address; this buys them that pause.
+        min_endpointing_delay=MIN_ENDPOINTING_DELAY,
     )
 
     await session.start(
         agent=TriageAgent(call_id),
         room=ctx.room,
-        room_input_options=RoomInputOptions(),
+        room_options=RoomOptions(),
     )
 
     await session.generate_reply(

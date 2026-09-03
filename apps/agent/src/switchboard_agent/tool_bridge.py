@@ -24,6 +24,8 @@ import datetime
 import inspect
 import json
 import logging
+import os
+import pathlib
 from typing import Any
 
 from livekit.agents import RunContext, function_tool
@@ -40,6 +42,31 @@ log = logging.getLogger("switchboard_agent.tools")
 #: that actually made the call, which is a different question and the only
 #: one a permissions boundary can be checked against.
 turns = logging.getLogger("switchboard_agent.turns")
+
+#: And it is also appended to a file, because the first real call proved the
+#: logger alone is not enough: LiveKit runs each job in a subprocess with its
+#: own logging setup, and these records did not survive it. A harness
+#: artifact cannot depend on ambient log configuration - Layer 4 already
+#: writes its own file for the same reason.
+TURN_LOG = pathlib.Path(
+    os.environ.get(
+        "SWITCHBOARD_TURN_LOG",
+        pathlib.Path(__file__).parents[4] / "evals" / "last_call_turns.jsonl",
+    )
+)
+
+
+def _record_turn(call_id: str, agent: str, tool: str) -> None:
+    record = {"call_id": call_id, "agent": agent, "tool": tool}
+    turns.info(json.dumps(record))
+    try:
+        TURN_LOG.parent.mkdir(parents=True, exist_ok=True)
+        with TURN_LOG.open("a") as handle:
+            handle.write(json.dumps(record) + "\n")
+    except OSError:
+        # A read-only deployment must not lose the call over a log file.
+        turns.warning("could not append to %s", TURN_LOG)
+
 
 ALL_TOOLS = {**READ_TOOLS, **WRITE_TOOLS, **CONTROL_TOOLS}
 
@@ -67,9 +94,7 @@ def call_core_tool(fn, request, *, call_id: str, handled_by: str):
     session handling, the clock and the turn record cannot diverge between
     a tool the model picked and one the task group calls directly.
     """
-    turns.info(
-        json.dumps({"call_id": call_id, "agent": handled_by, "tool": fn.tool_name})
-    )
+    _record_turn(call_id, handled_by, fn.tool_name)
     parameters = inspect.signature(fn).parameters
     injected: dict[str, Any] = {}
     session = _session() if "session" in parameters else None

@@ -18,12 +18,18 @@ nothing:
   person.
 
 What still needs a real conversation is whether the model *hands off* at
-the right moment. That part reads the turn log this run produced - see
-`assert_no_forbidden_turns` - and belongs pre-deploy, where a session
-exists to generate turns.
+the right moment. That part reads `evals/last_call_turns.jsonl`, which the
+tool bridge appends to on every call - see `assert_no_forbidden_turns` and
+`read_turn_log`.
+
+That file exists because the first real call proved a logger was not
+enough: LiveKit runs each job in a subprocess with its own logging setup,
+and the turn records did not survive it. A harness artifact cannot depend
+on ambient log configuration.
 """
 
 import json
+import pathlib
 
 import pytest
 
@@ -123,6 +129,16 @@ class TestTheHandoffChain:
         assert sorted(DispatchAgent.TOOLS) == sorted(everything)
 
 
+TURN_LOG = pathlib.Path(__file__).parent / "last_call_turns.jsonl"
+
+
+def read_turn_log(path: pathlib.Path = TURN_LOG) -> list[dict]:
+    """The turns a real call produced, or nothing if none has run here."""
+    if not path.exists():
+        return []
+    return [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
+
+
 def assert_no_forbidden_turns(turn_log: list[dict]) -> list[str]:
     """The behavioural half, for a run that has a real conversation.
 
@@ -169,3 +185,15 @@ class TestTheTurnLogAssertion:
         the records cannot drift."""
         record = json.loads('{"call_id": "c", "agent": "Service", "tool": "x"}')
         assert set(record) == {"call_id", "agent", "tool"}
+
+
+class TestAgainstARealCall:
+    def test_no_recorded_call_crossed_the_boundary(self) -> None:
+        """Runs against whatever calls this machine has taken. Empty when
+        none have - a machine that has never answered the phone has nothing
+        to say here, and saying nothing is honest.
+        """
+        turns = read_turn_log()
+        if not turns:
+            pytest.skip("no call has been recorded on this machine yet")
+        assert assert_no_forbidden_turns(turns) == []
