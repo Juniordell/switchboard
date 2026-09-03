@@ -12,21 +12,21 @@
       "provenance_saltbush"
     ]
   },
-  "measured_at": "2026-09-03T17:15:21.370831+00:00",
+  "measured_at": "2026-09-03T17:26:46.977881+00:00",
   "layer4": {
     "SQL": {
       "calls": 66,
       "measured_on": "duration_ms",
-      "p50_ms": 1.532,
-      "p95_ms": 9.868,
-      "max_ms": 32.651,
+      "p50_ms": 1.303,
+      "p95_ms": 8.903,
+      "max_ms": 27.391,
       "budget_ms": 40
     },
     "hybrid": {
       "calls": 13,
       "measured_on": "postgres_ms",
-      "p50_ms": 1.425,
-      "p95_ms": 2.786,
+      "p50_ms": 1.392,
+      "p95_ms": 2.774,
       "max_ms": 3.1,
       "budget_ms": 1300
     },
@@ -34,24 +34,24 @@
       "calls": 14,
       "measured_on": "duration_ms",
       "p50_ms": 0.028,
-      "p95_ms": 0.306,
-      "max_ms": 0.784,
+      "p95_ms": 0.292,
+      "max_ms": 0.75,
       "budget_ms": null
     },
     "web": {
       "calls": 3,
       "measured_on": "duration_ms",
-      "p50_ms": 0.16,
-      "p95_ms": 0.171,
-      "max_ms": 0.172,
+      "p50_ms": 0.168,
+      "p95_ms": 0.17,
+      "max_ms": 0.17,
       "budget_ms": 1500
     },
     "write": {
       "calls": 34,
       "measured_on": "duration_ms",
-      "p50_ms": 2.426,
-      "p95_ms": 3.879,
-      "max_ms": 7.394,
+      "p50_ms": 2.146,
+      "p95_ms": 3.692,
+      "max_ms": 5.656,
       "budget_ms": null
     }
   }
