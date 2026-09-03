@@ -1,19 +1,57 @@
 # Agents and tools
 
-All tools live in `packages/core/tools/`. They are ordinary typed Python
-functions with Pydantic argument models. The voice agent binds them; the
-FastAPI app exposes them; the async agents import them. One implementation.
+All tools live in `packages/core/src/switchboard_core/tools/`. They are
+ordinary typed Python functions with Pydantic argument models. The voice agent
+binds them; the FastAPI app exposes them; the async agents import them. One
+implementation.
 
 ## Tool contract
 
+Built in T3.1: `tools/call_log.py` (the logging decorator) and
+`tools/contract.py` (`ToolResult`, `ToolError`, `ToolDomainError`,
+`tool_call`).
+
 Every tool:
 - takes a Pydantic model, returns a Pydantic model
-- never raises to the caller; returns a typed error result
+- returns a typed `ToolError` instead of raising, **for a domain outcome it
+  recognises** — see below
 - logs `{call_id, agent, tool, args, duration_ms, result_rows, ok}`
 - is idempotent if it writes
 
-`duration_ms` is the source of the latency baseline from T3.1 onward. See the
-per-tool budgets in `docs/ARCHITECTURE.md`.
+`call_id` is keyword-only with no default: a call with nothing to attribute it
+to is a bug, not a valid call, the same structural rule `search_notes` applies
+to `entity_id`.
+
+### Which failures are returned, and which are raised
+
+`tool_call` catches **only** `ToolDomainError` and its subclasses — the
+address that doesn't resolve, the entity id in the wrong shape — and turns
+those into a `ToolError` the caller reads like any other result.
+
+Everything else propagates: `pydantic.ValidationError`, `KeyError`, a bare
+`ValueError`. Those are defects, and a tool that answers every failure with an
+equally polite `ToolError` is indistinguishable, from the outside, from a tool
+with a bug in it. A traceback in a test is the cheaper outcome.
+
+Phase 2's `knowledge` and `prose` modules still raise bare `ValueError` for
+what are really domain outcomes. Bridging those is T3.2's job, as each is
+wrapped as a tool.
+
+### `duration_ms` is a total, not the only timing
+
+`duration_ms` is the source of the latency baseline from T3.1 onward, and it
+is always the whole call. A tool whose budget splits across genuinely
+different costs reports the breakdown too: a result overriding
+`timings() -> dict[str, float]` has those keys merged into the same log
+record, beside the total rather than instead of it.
+
+`search_notes` is the case that forced this — T2.5 measured 463 ms of OpenAI
+embedding call against 2-5 ms of Postgres, so one fused number is a p95 that
+says nothing about which half moved. Layer 4 asserts the network leg
+separately from the database leg. Most tools override nothing and log the
+total alone.
+
+See the per-tool budgets in `docs/ARCHITECTURE.md`.
 
 ## Tool kinds
 

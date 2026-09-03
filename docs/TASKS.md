@@ -127,8 +127,22 @@ Work one at a time. Do not skip ahead. Each task ends with `ruff check` and
       reason. See `docs/DECISIONS.md`.
 
 ## Phase 3 — Tools
-- [ ] T3.1 Tool contract base: Pydantic in/out, logging decorator with
+- [x] T3.1 Tool contract base: Pydantic in/out, logging decorator with
       `duration_ms`, typed errors. This log is the latency baseline source.
+      `tools/call_log.py`: `log_tool_call` logs hard rule 5's seven fields as
+      one JSON line per call, failures included, then re-raises — deciding
+      what the caller sees is not the logger's job. `duration_ms` is the
+      total and is never the only timing available: a result overriding
+      `timings()` gets its own breakdown merged into the same record
+      (`search_notes` will report `embedding_ms` and `postgres_ms`, since
+      T2.5 measured 463 ms of OpenAI against 2-5 ms of Postgres and Layer 4
+      must assert those apart). `tools/contract.py`: `ToolResult` (with
+      `result_rows()`/`timings()` hooks), `ToolError`, `ToolDomainError`, and
+      `tool_call`, which catches **only** `ToolDomainError` — a
+      `ValidationError` or `KeyError` propagates, because a polite error
+      result hiding a defect is worse than a traceback. `call_id` is
+      keyword-only with no default. 22 tests; Phase 2's bare `ValueError`s
+      are bridged in T3.2, pinned by a test as a decision, not an accident.
 - [ ] T3.2 All read tools
 - [ ] T3.3 All write tools with idempotency and audit rows
 - [ ] T3.4 `web_search`
