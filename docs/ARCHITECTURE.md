@@ -176,8 +176,23 @@ it is the right trade when naturalness is the product, and it is not here.
 
 ## Build note
 
-apps/agent depends on packages/core, so its Dockerfile uses the repository root
-as build context: `docker build -f apps/agent/Dockerfile .`
+**Both** app images take the repository root as their build context, because
+both depend on `packages/core` — the agent binds the tools, the API exposes
+them:
+
+```
+docker build -f apps/agent/Dockerfile .
+docker build -f apps/api/Dockerfile .
+```
+
+This note previously named only the agent. The API has the same dependency and
+therefore the same constraint.
+
+Each image copies **every** workspace member's `pyproject.toml` into its
+dependency layer, including the members it does not build. `uv sync --locked`
+compares the workspace on disk against `uv.lock`, and a missing member makes
+the lock look stale — the build then fails pointing at the lock rather than at
+the absent manifest.
 
 ## Observability
 
