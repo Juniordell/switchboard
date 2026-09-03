@@ -1,6 +1,6 @@
 # Eval harness
 
-Four layers, cheapest first. Baseline committed to `evals/baseline.json`.
+Five layers, cheapest first. Baseline committed to `evals/baseline.json`.
 CI fails the build on regression beyond tolerance.
 
 ## The minimal tool client (T4.0)
@@ -19,6 +19,26 @@ of ordering the phases this way: the tool contract gets tested against a model
 while it is still cheap to change. Phase 5 later binds the same schemas to the
 real agents, so what Layer 1 asserted stays true.
 
+## Layer 0 — Structural guards
+Static assertions over the source tree. No model, no database, no fixtures —
+milliseconds, and they run first because a failure here makes every later layer
+meaningless.
+
+**`test_no_job_invoice_number`.** Walks the `packages/core` AST and fails if the
+identifier `invoice_number` appears on anything job-shaped: a SQLAlchemy column
+on the jobs table, a Pydantic field on a job schema or any tool result
+containing one, or a dict key in a job serialiser. The single permitted
+occurrence is inside the `jobs.jsonl` parsing function, which is allow-listed
+by qualified name so that widening the exemption is itself a diff a reviewer
+sees.
+
+The same test asserts the inverse: the `invoices` model **does** carry
+`invoice_number`, so the guard cannot be satisfied by deleting the concept.
+
+This is what makes `CLAUDE.md` hard rule 8 structural. The rule says do not
+join on the number; the guard removes the identifier you would need in order to
+write that join. See `docs/DATA.md`.
+
 ## Layer 1 — Tool selection and arguments
 `evals/golden/tools.yaml`. 40 caller utterances labelled with expected tool
 sequence and argument shape. Runs against the T4.0 client. Deterministic
@@ -27,6 +47,46 @@ assertions, no judge, seconds.
 Example: "when were you last at 89 Harborlight Shores" must produce
 `resolve_address` → `get_visit_history`, and must **not** open with
 `search_notes`.
+
+### The number-provenance case
+
+One case in `tools.yaml` is not about tool selection. The caller asks for the
+number of a service — "what's the number on that job", "what do I quote you if
+I call back" — and the assertion is on **provenance**, not on wording:
+
+> Every number the agent returns must be traceable to a row whose `job_id`
+> equals the resolved job's id.
+>
+> - A job number must equal that job's `job_number`.
+> - An invoice number must be in
+>   `{i.invoice_number for i in invoices if i.job_id == job.job_id}`.
+> - A number that satisfies neither is a **failure**, even if the rest of the
+>   turn is perfect and the number happens to sound right.
+
+The fixture is adversarial, drawn from the real dataset:
+
+| | |
+|---|---|
+| `job_id` | `job_1da1e743b7fb4a7784e9802706648572` |
+| Address | 91 Allamanda Ridge Blvd, Coral Gables 33162 |
+| Customer | Janice Donovan (Osprey Hospitality) |
+| **Correct job number** | **3743** |
+| Correct invoice numbers | `{3928}` |
+| The trap | Invoice **3743** exists and belongs to `job_68c27aea6ea34f` — **Seth Flynn**, a different customer at a different address |
+
+So `3743` is simultaneously the right answer as a job number and a different
+customer's invoice number. A system that joins on the number rather than
+`job_id` retrieves Seth Flynn's invoice and reads its details to Janice
+Donovan, and every intermediate step looks correct. The case also exercises the
+labelling rule in `docs/AGENTS.md`: an invoice number spoken without being
+named as one is a failure here.
+
+A second fixture covers a multi-visit address:
+`job_28e341b2495a4e8cbf6d677eddcc00b5`, job number **3611**, 45 Saltbush Bluff
+Ct (4 jobs at that address, customer Starfish Hospitality) — where invoice 3611
+belongs to Charlene Whitaker at 74 Oleander Key St.
+
+This runs on every commit. It is a CI failure, not a code-review catch.
 
 Layer 1 also settles the open retrieval question in `docs/ARCHITECTURE.md`:
 whether the dense leg of `search_notes` earns its place at a candidate set of
@@ -77,7 +137,8 @@ The first baseline is measured, not chosen.
 - Baseline lives in the repo, versioned with the code that produced it.
 - Tolerance band of 0.02 on judged metrics; judge calls are stochastic.
 - Non-zero exit code.
-- **Every commit:** Layer 1, plus Layer 4 over the calls Layer 1 produced.
+- **Every commit:** Layer 0, Layer 1, plus Layer 4 over the calls Layer 1
+  produced.
 - **Subset per commit:** Layers 2 and 3.
 - **Pre-deploy, in full:** Layers 2, 3, 3b, and Layer 4 over all of it.
 - Every failure found by calling the agent becomes a permanent case.
