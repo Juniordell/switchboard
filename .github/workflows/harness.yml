@@ -1,0 +1,93 @@
+name: harness
+
+# docs/HARNESS.md, "Gate rules": every commit runs Layer 0, Layer 1, and
+# Layer 4 over the calls those layers produced. Non-zero exit on regression
+# beyond the 0.02 band.
+#
+# The split below is about what needs a key, not about what matters. Layer 0
+# and the number-provenance case are the two things that must never be
+# skippable, and neither needs one - they read the database and the source
+# tree. Layer 1 drives a model, so it runs when OPENAI_API_KEY is configured
+# and is reported as skipped when it is not, never as passed.
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+jobs:
+  harness:
+    runs-on: ubuntu-latest
+
+    services:
+      db:
+        # Same image as docker-compose: pgvector and pg_trgm both present.
+        image: pgvector/pgvector:0.8.6-pg17-trixie
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: switchboard
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/switchboard
+      # At job level so the `if:` conditions below can see whether the
+      # secret is configured. A step-level env is not visible to `if:`.
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          version: "0.9.7"
+
+      - name: Sync the workspace
+        run: uv sync --all-packages --locked
+
+      # ---- Layer 0: structural guards. No database, no model, milliseconds.
+      - name: Lint and format
+        run: |
+          uv run ruff check .
+          uv run ruff format --check .
+
+      - name: Layer 0 - structural guards
+        run: uv run pytest packages/core/tests/test_no_job_invoice_number.py -q
+
+      # ---- The database the rest of the layers read.
+      - name: Migrate
+        working-directory: packages/core
+        run: uv run alembic upgrade head
+
+      - name: Load
+        run: uv run python -m switchboard_core.load
+
+      - name: Verify the load matches docs/DATA.md
+        run: uv run python scripts/verify_load.py
+
+      # ---- Full suite. Carries Layer 1's number-provenance case, the
+      #      hard-rule-4 guard, and writes the tool call log Layer 4 reads.
+      - name: Tests
+        run: uv run pytest -q
+
+      # ---- Layer 4, over the calls the step above produced.
+      - name: Layer 4 - latency per tool class
+        run: uv run python evals/layer4.py
+
+      # ---- Layer 1. Needs a model, so it needs a key.
+      - name: Layer 1 - tool selection
+        if: ${{ env.OPENAI_API_KEY != '' }}
+        run: uv run python evals/runner.py
+
+      - name: Layer 1 - skipped
+        if: ${{ env.OPENAI_API_KEY == '' }}
+        run: |
+          echo "::warning title=Layer 1 skipped::OPENAI_API_KEY is not set."
+          echo "Layer 1 grades tool selection and did not run. A skip is not a pass."
