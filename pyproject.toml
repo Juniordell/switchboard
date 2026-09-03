@@ -1,0 +1,36 @@
+[project]
+name = "switchboard"
+version = "0.1.0"
+description = "Voice front desk and operations platform for a field-service company"
+requires-python = ">=3.12,<3.13"
+
+[tool.uv]
+package = false
+
+[tool.uv.workspace]
+members = ["apps/agent", "apps/api", "packages/core"]
+
+[dependency-groups]
+dev = [
+    "pytest==9.1.1",
+    "ruff==0.16.5",
+]
+
+[tool.ruff]
+line-length = 88
+target-version = "py312"
+src = ["packages/core/src", "apps/api/src", "apps/agent/src"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "UP", "B", "SIM", "RUF"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["switchboard_agent", "switchboard_api", "switchboard_core"]
+
+[tool.pytest.ini_options]
+testpaths = [
+    "packages/core/tests",
+    "apps/api/tests",
+    "apps/agent/tests",
+]
+addopts = "-q --strict-markers --strict-config"
