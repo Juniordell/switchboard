@@ -143,7 +143,26 @@ Work one at a time. Do not skip ahead. Each task ends with `ruff check` and
       result hiding a defect is worse than a traceback. `call_id` is
       keyword-only with no default. 22 tests; Phase 2's bare `ValueError`s
       are bridged in T3.2, pinned by a test as a decision, not an accident.
-- [ ] T3.2 All read tools
+- [x] T3.2 All read tools — the nine read entries in `docs/AGENTS.md`, in
+      `switchboard_core/tools/`, each `@tool_call`-wrapped with a Pydantic
+      request and a `ToolResult`. `READ_TOOLS` keys them by the name T4.0
+      binds. Five wrap Phase 2 (`resolve_address`, `get_visit_history`,
+      `get_warranty_status`, `get_customer_balance`, `search_notes`);
+      **four did not exist and are new logic**: `resolve_customer`,
+      `identify_caller_role`, `get_schedule`, `find_availability`.
+      Carries the error bridge T3.1 deferred (`tools/errors.py`).
+      `search_notes` now reports `embedding_ms` and `postgres_ms` beside
+      the total, via `search_notes_timed`. Three findings worth the
+      reviewer's time: trigram similarity measures length, not meaning, so
+      "Lighthouse" scoring 1.0 against a customer of that exact name and
+      0.48 against "Lighthouse Hospitality" is an **ask**, not a decision
+      (two customers are also both named "Starfish Hospitality");
+      `find_availability` returns one row per window rather than one per
+      free tech, since 15 names for the same 10:00 fills the limit with a
+      single option; and a homeowner or property manager cannot even
+      construct a `get_schedule` request without a resolved `customer_id`.
+      No trigram index for `resolve_customer` and no migration: 732
+      customers is a sub-millisecond scan. 76 tests.
 - [ ] T3.3 All write tools with idempotency and audit rows
 - [ ] T3.4 `web_search`
 - [ ] T3.5 FastAPI exposure of every tool + `scripts/smoke_tools.sh`

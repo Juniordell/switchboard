@@ -33,9 +33,19 @@ Everything else propagates: `pydantic.ValidationError`, `KeyError`, a bare
 equally polite `ToolError` is indistinguishable, from the outside, from a tool
 with a bug in it. A traceback in a test is the cheaper outcome.
 
-Phase 2's `knowledge` and `prose` modules still raise bare `ValueError` for
-what are really domain outcomes. Bridging those is T3.2's job, as each is
-wrapped as a tool.
+Phase 2's `knowledge` and `prose` modules keep raising bare `ValueError` for
+what are really domain outcomes, and each tool translates at its own
+boundary into a type in `tools/errors.py` (T3.2). The layer below is also
+called directly by build steps and scripts, which want the traceback — so
+the translation belongs at the edge the agent calls, not in the query.
+
+`RetrievalUnavailableError` is the judgement call in that set: an
+unreachable embeddings API is not a defect in the calling path and not
+something a retry inside the tool fixes, so `search_notes` returns it
+rather than raising. Mid-call the agent has to be able to say the notes
+can't be searched and offer a human. The failure is still loud — `ok:
+false` in the call log, and a failing test for anything asserting a real
+search.
 
 ### `duration_ms` is a total, not the only timing
 
@@ -76,15 +86,15 @@ write-holding agent in order to be handed to a person. The hard rule in
 | Tool | Agent | Kind | Contract |
 |---|---|---|---|
 | `resolve_address` | Triage | SQL | Normalise spoken street, `pg_trgm` similarity over 1,337 canonical addresses. Returns up to 3 candidates with scores and **`canonical_id`**, never a source `address_id`. `must_ask=true` — ask, never guess — when the top score is below 0.55, **or** when it and the runner-up are within 0.05 of each other even if both individually clear 0.55. Returns address candidates only: no history, no balance, no appointment. |
-| `resolve_customer` | Triage | SQL | By name, company, or resolved address. Same candidate + confidence shape. Returns name and kind only. `kind` is unreliable — see below. |
-| `identify_caller_role` | Triage | logic | homeowner / property_manager / tech / owner. Determines which agent takes over and which tools exist. |
+| `resolve_customer` | Triage | SQL | By name, company, or resolved address. Same candidate + confidence shape. Returns name, `kind` and the customer record's own `job_count` — no job, invoice, note or schedule data. `kind` is unreliable — see below. Asks more often than `resolve_address` does: two different customers are both called "Starfish Hospitality", and a name that is the start of a longer one ("Lighthouse") is an ask, because trigram similarity measures length, not meaning. |
+| `identify_caller_role` | Triage | logic | homeowner / property_manager / tech / owner. Determines which agent takes over and which tools exist. Takes no database session at all: every signal is passed in, including the customer fields `resolve_customer` returned. **`owner` is the company's owner**, so "I own the house" is a homeowner and "I own the company" is not. |
 | `get_visit_history` | Service | SQL | Structured rows from `get_visit_history` for a **`canonical_id`**: job id, `job_number` (never `invoice_number` — joined on `job_id` only), service date, techs, description, invoice numbers, outstanding balance, and `callback_from_job_id` if this visit was a callback about an earlier one. Ordered, so "last" is a fact. No generated prose — the agent summarises at speaking time. Aggregates the 0-to-4 invoices a job may have. |
 | `get_warranty_status` | Service | SQL | Derived per the precedence rule in `docs/DATA.md`, scoped to a `canonical_id` plus the equipment the caller named. **Always returns the basis and the level**, never a bare yes/no. |
 | `get_customer_balance` | Service | SQL | `SUM(job.outstanding_balance)` across every job for a `customer_id` — a customer total, not scoped to an address. Zero, not an error, for a customer with no jobs. |
 | `search_notes` | Service | hybrid | `search_notes(entity_id, query)`. Entity id is required and positional. Returns `note_id`, `snippet`, and **`job_service_date`**. See citation rules below. |
-| `get_schedule` | Service | SQL | Today or a date range, scoped to caller role. A homeowner may only see their own jobs. Excludes stale scheduled jobs — see `docs/SCOPE.md`. |
+| `get_schedule` | Service | SQL | Today or a date range, scoped to caller role. A homeowner **or property manager** may only see their own jobs, and a request from one without a resolved `customer_id` fails validation rather than querying. `tech` and `owner` are internal and see the whole day. Excludes stale scheduled jobs — see `docs/SCOPE.md`. |
 | `web_search` | Service | web | Weather, model numbers, supplier hours. Always returns the source. Try `search_notes` first for anything the company may already know. |
-| `find_availability` | Dispatch | SQL | Gaps in the assumed working day, against future scheduled jobs only. Returns slot windows with tech names. The working day is an assumption, not data — see `docs/SCOPE.md`. |
+| `find_availability` | Dispatch | SQL | Gaps in the assumed working day, against future scheduled jobs only. Returns **one row per window** with an available tech — a caller is offered times, not a roster. Bookable techs are `role = 'field tech'` (15 of 23), read off the record rather than an exclusion list. The working day is an assumption, not data, and the caveat is carried in the result — see `docs/SCOPE.md`. |
 | `book_job` | Dispatch | write | Requires explicit spoken confirmation. Idempotency key from `call_id + slot`. Emits to the dashboard feed. |
 | `move_job` | Dispatch | write | Same rules. Writes an audit row with old and new values. |
 | `add_note` | Dispatch | write | Appends a note attributed to the agent and the call. |
