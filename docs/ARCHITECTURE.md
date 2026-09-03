@@ -47,14 +47,19 @@ same street and zip appears as both "Key Biscayne" and "Miami Beach".
   derived from code, not copied from a source id, so it changes whenever the
   normaliser does, and an upsert never removes a primary key an incoming batch
   stopped producing. `address_alias.address_id` is stable and upserts safely.
-- Three of the four null-address-id jobs resolve once a job is looked up by
-  its own address string rather than by `address.id` — their street matches
-  an existing canonical group built from `customer_addresses`. The fourth
+- `job_canonical_id` (T2.3a) resolves any job to a canonical address directly
+  from the job's own flattened `address_street` / `address_street_line_2` /
+  `address_zip` columns (T1.3), the same fields used to build
+  `canonical_addresses` — no join through `address_alias`, since `canonical_id`
+  is a pure function of those three fields. This is what three of the four
+  null-address-id jobs need: their street matches an existing canonical group,
+  so they resolve exactly like any job with an id. The fourth
   (`job_a8edd70d8b7c`, 69 Plumeria Glen Drive) does not: no `customer_addresses`
-  row carries that street at all, so it has no canonical group yet. Wiring a
-  job to a canonical address, including this case, is T2.2's job when
-  `visit_history` links jobs to addresses directly — T2.1 builds the
-  canonicalisation `customer_addresses` needs, not yet the job-side lookup.
+  row carries that street at all, so it correctly resolves to nothing.
+  Verified to agree with `address_alias` on all 1,992 jobs with zero
+  mismatches. Every derived table that needs "which address is this job at" —
+  `install_dates` today, `visit_history` and `warranty_status` from T2.2
+  onward — uses this, not a join on `address_id`.
 - `resolve_address` returns `canonical_id`, never `address.id`.
 - `visit_history` and `warranty_status` will be keyed on `canonical_id` from
   T2.2 onward.

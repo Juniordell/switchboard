@@ -247,15 +247,49 @@ say that is what you did.
 
 ### Derived install date
 
-There is no install date in the source. It is derived: the job at the same
-canonical address whose `description` identifies an installation, taking its
-`work_timestamps.completed_at` as the install date. Where several qualify, the
-most recent one before the job in question. Where none qualifies, level 3
-below cannot fire and the answer falls through.
+There is no install date in the source. Built in `knowledge.install_dates`
+(T2.3a): among jobs at the same canonical address whose `description`
+identifies a whole-system install, the most recent `completed_at` becomes that
+address's install date.
 
-This derivation is its own build step — `docs/TASKS.md` T2.3a — because the
-`1 Yr Labor Warranty` tag sits on the **install** job, not on the service job
-the caller is phoning about.
+**Not every "install" in the text counts.** Naive matching on the word
+catches part- and fixture-level noise — "Install New Angle Stop", "Customer
+supplied toilet install" — that has nothing to do with an HVAC system. The
+three prefixes that do, checked against invoice amount and tags before being
+trusted:
+
+| Prefix | Jobs | Median invoice |
+|---|---:|---:|
+| `System Installation` | 38 | $12,295 |
+| `New System Installation` | 34 | $10,465 |
+| `New Construction` | 9 | $27,316 |
+| *(reference)* `Service Calls - Repairs...` | 100 | $456 |
+
+— an order of magnitude apart, and the matched jobs carry `Registration
+Needed` (32) / `Registration Complete` (14), manufacturer equipment
+registration that only makes sense right after installing new equipment.
+Two adjacent, install-word-containing prefixes were checked by reading their
+notes and **excluded**: `Zone System Installation` ("zones installed and
+operational" — dampers added to an *existing* system) and `System Relocation
+- System Installation` ("Air handler is relocated" — the *existing* unit
+moved). Neither starts a new install clock.
+
+**Coverage is thin, and that is expected, not a bug: only 62 of the 1,337
+canonical addresses get an install date.** An install is rare inside a
+six-month export; most addresses' equipment predates the window. Level 3
+below falls through for the other 1,275.
+
+**Correction — the `1 Yr Labor Warranty` tag does not sit on the install
+job.** An earlier revision of this document claimed it did; checking all 53
+tagged jobs against the install-job filter above finds **zero** overlap. The
+tag sits on **service** jobs — the visit where staff applied a warranty
+discount, not the installation itself. One tagged job's description literally
+reads: *"Service & Repair Fee - Standard — $0 fee as unit is under a 1 year
+labor warranty"*. Level 3's rule below is corrected accordingly: it fires from
+the **derived install date's recency**, not from finding the tag on a
+particular job, because there is no job where that tag and an install
+description co-occur to find. The tag remains useful as corroborating
+evidence for T2.3b to weigh, just not as a precondition.
 
 ### Precedence rule
 
@@ -265,7 +299,7 @@ Implement exactly this order. **Always return the basis with the answer.**
 |---|---|---|---|
 | 1 | A note stating an explicit warranty term ("under warranty until 2030", a named term) | **high** | Covered per that term. Quote the note, attribute it to the tech, and give the **job's service date**. |
 | 2 | An invoice line item matching `ILIKE '%warrant%'` | **high, historical** | This part *was* covered by the manufacturer on that visit. Cite the invoice number and its service date. Historical evidence of coverage, not proof of coverage today. |
-| 3 | `1 Yr Labor Warranty` tag on the **derived install job** at this canonical address, with `completed_at` within 12 months | **high** | Labor covered. Cite the install job number and the install date. |
+| 3 | `knowledge.install_dates` has a row for this canonical address, with `install_date` within 12 months | **high** | Labor covered. Cite the install job number and the install date. A `1 Yr Labor Warranty` tag on a later service job at the same address is corroborating, not required — see "Derived install date" above for why the tag cannot be the trigger. |
 | 4 | `Warranty Claim` or `Registration Needed` on a job at this address | **medium** | A claim is open or registration is pending. Say what is in flight, do not assert an outcome, and **offer a human**. |
 | 5 | `Warranty Complete` | **neutral** | Means the warranty *work was finished*, not that coverage ended. It is never evidence against coverage. It contributes context only; on its own it does not answer, and the answer falls to level 6. |
 | 6 | Nothing | **unknown** | Not known. Offer to have someone check. |

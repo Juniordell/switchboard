@@ -53,13 +53,25 @@ Work one at a time. Do not skip ahead. Each task ends with `ruff check` and
 - [ ] T2.2 `visit_history` derived table keyed on `canonical_id`, returning
       structured rows only — no generated prose. Aggregates the 0-to-4 invoices
       a job may have.
-- [ ] T2.3a **Derived install date**: for each canonical address, the
-      installation job identified by `description`, taking
-      `work_timestamps.completed_at` as the install date, most recent first.
-      There is no install date field in the source; level 3 of the warranty
-      precedence rule cannot be built without this, and the
-      `1 Yr Labor Warranty` tag sits on the install job rather than on the
-      service job the caller is phoning about.
+- [x] T2.3a **Derived install date**: `knowledge.install_dates`, one row per
+      canonical address, from jobs whose `description` starts with
+      `System Installation`, `New System Installation` or `New Construction`
+      (validated by invoice amount — $10k-27k median vs $456 for an ordinary
+      repair — and `Registration Needed`/`Complete` tags; `Zone System
+      Installation` and `System Relocation` excluded after reading their
+      notes, neither is a new system going in), most recent `completed_at`
+      per address. Only 62 of 1,337 canonical addresses get a row — an
+      install is rare in a six-month export, and level 3 of the warranty
+      precedence rule falls through for the rest, expected not broken.
+      `job_canonical_id` resolves a job to its canonical address directly
+      from the job's own flattened address columns, no `address_alias` join,
+      reused by every derived table from here on. Corrected a wrong claim in
+      docs/DATA.md along the way: the `1 Yr Labor Warranty` tag sits on
+      **service** jobs, not install jobs — zero of the 53 tagged jobs match
+      an install description. `knowledge.install_dates.canonical_id` cascades
+      on delete from `canonical_addresses`, needed once a second table
+      derived by a different build step references the same rebuilt-every-run
+      parent.
 - [ ] T2.3b `warranty_status` derived table implementing the six-level
       precedence rule in `docs/DATA.md`, scoped to `canonical_id` plus named
       equipment, always returning the basis and the level. Line item match is
