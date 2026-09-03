@@ -80,8 +80,18 @@ job_cce3cfa376  job.invoice_number='158'   → real invoices: ['166']
 
 1. `job_id` is the **only** join key between jobs and invoices. Nothing else
    is permitted anywhere in the codebase.
-2. Model the job's field as `job_number`, not `invoice_number`, at load time.
-   The source field name is the trap; do not carry it forward.
+2. **The name `invoice_number` does not exist on anything job-shaped, anywhere
+   past the loader.** It survives only as a local variable inside the function
+   that parses `jobs.jsonl`, which is the one place that has to speak the
+   source's vocabulary. The moment a job leaves that function it carries
+   `job_number` — in the SQLAlchemy model, the Pydantic schemas, every tool
+   result, every API response, every row the web app renders.
+
+   The `invoices` table keeps its own `invoice_number`, because that one is
+   real. So the wrong join cannot be typed: there is no `job.invoice_number`
+   on either side of an `==` to write it with. This is containment by naming,
+   not a rule someone has to remember. `CLAUDE.md` hard rule 8 states the
+   intent; T1.3's guard test enforces it.
 3. **The agent speaks the job number to the caller**, because that is the
    number staff and customers use. Invoice numbers are for citing an invoice
    as evidence — a warranty line item, a balance — and must be labelled as
