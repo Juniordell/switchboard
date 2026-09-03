@@ -96,18 +96,32 @@ class TestRRFMathIsExact:
     def test_no_embedding_and_no_lexical_match_returns_nothing(
         self, db_session
     ) -> None:
-        """embedding IS NULL (the real state before embed_pending runs) and
-        no lexical match: the fused score is 0 + 0, filtered out by
-        `WHERE score > 0` - not a zero-score row, no row at all.
+        """embedding IS NULL (true before `embed_pending` ever runs on a note
+        - every note in the live database is embedded now, so this pins that
+        state explicitly inside a SAVEPOINT rather than relying on it holding
+        globally) and no lexical match: the fused score is 0 + 0, filtered
+        out by `WHERE score > 0` - not a zero-score row, no row at all.
         """
-        results = rank_candidates(
-            db_session,
-            [JOB_ID],
-            "zzqxjklw nonsense term nothing lexical matches this",
-            _unit_vector(0),
-            limit=10,
-        )
-        assert results == []
+        note_ids = _note_ids_for_job(db_session, JOB_ID)
+        nested = db_session.begin_nested()
+        try:
+            db_session.execute(
+                text(
+                    "UPDATE prose.note_chunks SET embedding = NULL "
+                    "WHERE note_id = ANY(:ids)"
+                ),
+                {"ids": note_ids},
+            )
+            results = rank_candidates(
+                db_session,
+                [JOB_ID],
+                "zzqxjklw nonsense term nothing lexical matches this",
+                _unit_vector(0),
+                limit=10,
+            )
+            assert results == []
+        finally:
+            nested.rollback()
 
 
 class TestEntityScopeIsMandatory:
