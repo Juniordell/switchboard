@@ -1,12 +1,15 @@
 """``python -m switchboard_core.load`` — load the dataset into Postgres.
 
-One transaction. Idempotent: run it twice and the database is identical.
+One transaction: the source tables, then every Knowledge-layer build step,
+since the latter reads the former. Idempotent: run it twice and the database
+is identical.
 """
 
 import logging
 import sys
 
 from switchboard_core.db.session import create_db_engine, session_factory
+from switchboard_core.knowledge import build_all as build_knowledge
 from switchboard_core.load.loaders import load_all
 
 
@@ -21,10 +24,11 @@ def main() -> int:
     engine = create_db_engine()
     with session_factory(engine)() as session, session.begin():
         counts = load_all(session)
+        counts.update(build_knowledge(session))
 
     for table, written in sorted(counts.items()):
-        log.info("%-20s %6d rows", table, written)
-    log.info("%-20s %6d rows total", "", sum(counts.values()))
+        log.info("%-30s %6d rows", table, written)
+    log.info("%-30s %6d rows total", "", sum(counts.values()))
     return 0
 
 
