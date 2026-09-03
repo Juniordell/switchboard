@@ -1,5 +1,8 @@
 """Shared fixtures for tests that need a live database.
 
+At the repository root so every testpath sees them - `packages/core/tests`,
+and `evals`, whose number-provenance case reads the same loaded database.
+
 Requires Postgres up, migrated to head, and loaded
 (`docker compose up -d`, `alembic upgrade head`, `python -m switchboard_core.load`)
 - the same prerequisite `scripts/verify_load.py` already has. Nothing here

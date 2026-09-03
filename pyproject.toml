@@ -38,5 +38,9 @@ testpaths = [
     "packages/core/tests",
     "apps/api/tests",
     "apps/agent/tests",
+    # Layer 1's number-provenance case needs no model and must run on
+    # every commit. The rest of Layer 1 is evals/runner.py, which costs
+    # API calls and is driven by CI (T4.3).
+    "evals",
 ]
 addopts = "-q --strict-markers --strict-config"
