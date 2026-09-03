@@ -26,6 +26,8 @@ is the cheapest accuracy win available, and it comes from measured data
 rather than from a guess about HVAC vocabulary.
 """
 
+import contextlib
+import datetime
 import logging
 
 from livekit.agents import (
@@ -36,8 +38,11 @@ from livekit.agents import (
     inference,
 )
 from livekit.agents.voice.room_io import RoomOptions
+from sqlalchemy import text
 
 from switchboard_agent.agents import TriageAgent
+from switchboard_core.db.session import create_db_engine, session_factory
+from switchboard_core.observability import record_tool_calls
 
 logger = logging.getLogger("switchboard_agent")
 
@@ -79,12 +84,52 @@ ENDPOINTING_MAX_DELAY = 4.0
 server = AgentServer()
 
 
+def _open_call(call_id: str, caller: str | None) -> None:
+    """Record the call, so the dashboard has something to group by.
+
+    Best effort. A database the agent cannot reach is a reason to answer
+    the phone without a dashboard, not a reason to drop the call.
+    """
+    with contextlib.suppress(Exception):
+        sessions = session_factory(create_db_engine())
+        with sessions() as session, session.begin():
+            session.execute(
+                text(
+                    "INSERT INTO ops.calls (call_id, caller, started_at) "
+                    "VALUES (:c, :caller, :now) ON CONFLICT (call_id) DO NOTHING"
+                ),
+                {
+                    "c": call_id,
+                    "caller": caller,
+                    "now": datetime.datetime.now(datetime.UTC),
+                },
+            )
+
+
+def _close_call(call_id: str) -> None:
+    with contextlib.suppress(Exception):
+        sessions = session_factory(create_db_engine())
+        with sessions() as session, session.begin():
+            session.execute(
+                text("UPDATE ops.calls SET ended_at = :now WHERE call_id = :c"),
+                {"c": call_id, "now": datetime.datetime.now(datetime.UTC)},
+            )
+
+
 @server.rtc_session(agent_name="switchboard")
 async def entrypoint(ctx: JobContext) -> None:
     # The room name is the call id: every audit row and every line of the
     # tool call log traces back to this call (CLAUDE.md hard rule 5).
     call_id = ctx.room.name
     logger.info("call starting", extra={"call_id": call_id})
+
+    # Turn the tool call log into rows. The decorator keeps logging; this
+    # is what lets T6.2's stream see it from another process, and it is
+    # installed here rather than in the contract so the test suite does not
+    # write rows it never asked for.
+    record_tool_calls()
+    _open_call(call_id, _caller_from(call_id))
+    ctx.add_shutdown_callback(lambda: _close_call(call_id))
 
     session = AgentSession(
         stt=inference.STT(model=STT_MODEL, language="en"),
@@ -113,6 +158,13 @@ async def entrypoint(ctx: JobContext) -> None:
             "Do not ask for their address yet unless they pause."
         )
     )
+
+
+def _caller_from(room_name: str) -> str | None:
+    """The dispatch rule names rooms `call-_<caller>_<random>`, so the
+    caller's number is already in the room name."""
+    parts = room_name.split("_")
+    return parts[1] if len(parts) >= 3 and parts[1].startswith("+") else None
 
 
 def main() -> None:
