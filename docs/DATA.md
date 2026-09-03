@@ -46,7 +46,7 @@ Every number below was counted from `data/*.jsonl`.
 | Jobs by customer kind | 1,638 homeowner, 354 business |
 | Employees | 23 — 15 field tech, 6 admin, 2 office staff |
 | Address ids | 1,390 distinct, **4 jobs carry `address.id = null`** |
-| Address tuples | 1,370 raw, **1,360 canonical** (see below) |
+| Address tuples | **1,367** distinct in `customer_addresses`; 1,370 raw over jobs; **1,360 canonical** (see below) |
 | Distinct street strings | 1,178 |
 | Scheduled after 2026-09-02 | 42 rows, of which **38 `scheduled`** + 2 `pro canceled` + 2 `user canceled` (last: 2026-09-15) |
 
@@ -122,6 +122,15 @@ The dataset does not have a clean address key.
 
 - 1,390 distinct `address.id` values, and 4 jobs where `address.id` is null
   while the address object itself is present and complete.
+- **1,367** distinct `(street, street_line_2, city, state, zip)` tuples across
+  the 1,390 rows of `customers[].addresses`, untouched — so 23 ids are a
+  duplicate of a tuple another id already carries. This is the figure
+  `scripts/verify_load.py` asserts, because it is a fact about the source
+  rather than about a normalisation choice.
+- The same count over **jobs** is 1,370, not 1,367: jobs include the 4 rows
+  with no address id and one row of empty strings that the customer listing
+  does not. Three different denominators, three different true numbers - name
+  the denominator whenever quoting one.
 - No address id ever carries two different streets. The reverse happens:
   **30 canonical addresses are split across 31 redundant address ids.**
 - `street_line_2` is `null` on 1,171 jobs, the **empty string** on 267, and set
