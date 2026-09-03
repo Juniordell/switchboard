@@ -182,8 +182,27 @@ Work one at a time. Do not skip ahead. Each task ends with `ruff check` and
       the field service system assigns those. Hard rule 4 is a guard test.
       46 tests, including a real committed `NOTIFY` delivery.
       `transfer_to_human` is `control`, not `write` — T5.4.
-- [ ] T3.4 `web_search`
-- [ ] T3.5 FastAPI exposure of every tool + `scripts/smoke_tools.sh`
+- [x] T3.4 `web_search` — Tavily over `httpx`, one POST, no SDK and no new
+      dependency. **Always returns the source:** `url` is a required field
+      and a result without one is dropped rather than passed on. An
+      unreachable or unconfigured Tavily is `WebSearchUnavailableError`,
+      the same judgement as `RetrievalUnavailableError`. Tests drive a real
+      `httpx.MockTransport`, so the outgoing URL, bearer header and body are
+      asserted and only the network is stubbed. **Not verified against live
+      Tavily: `TAVILY_API_KEY` is empty in `.env`.**
+- [x] T3.5 FastAPI exposure of every tool + `scripts/smoke_tools.sh`.
+      `POST /tools/{name}` takes the tool's **own** Pydantic request as the
+      body, so the schema an agent binds and the schema the API accepts are
+      one object; `GET /tools` publishes all 13 schemas — the surface T4.0
+      binds. Dispatch is by signature, not a hand-kept table: declaring
+      `session` gets one, declaring `as_of` gets the server clock,
+      `identify_caller_role` declares neither and gets neither. `call_id` is
+      a required header; `X-As-Of` makes a run deterministic. Responses
+      carry `ok`, mirroring the call log — a `ToolError` is 200 and a
+      malformed body is 422. `smoke_tools.sh` starts its own uvicorn, drives
+      all 13 with curl, checks the audit trail, cleans up its own committed
+      rows: **15 passed, 0 failed, 1 skipped** (`web_search`, no key). 15
+      HTTP tests alongside it.
 
 ## Phase 4 — Harness v1 (before the agent)
 - [ ] T4.0 Minimal text tool client: binds the Pydantic tool schemas to a model,
