@@ -4,8 +4,8 @@ Work one at a time. Do not skip ahead. Each task ends with `ruff check` and
 `pytest` green, plus a commit.
 
 ## Phase 1 — Foundation
-- [ ] T1.1 uv workspace, four packages, ruff + pytest config, Dockerfile per app
-- [ ] T1.2 docker-compose: Postgres 17 with `vector` and `pg_trgm`, api, web
+- [x] T1.1 uv workspace, four packages, ruff + pytest config, Dockerfile per app
+- [x] T1.2 docker-compose: Postgres 17 with `vector` and `pg_trgm`, api, web
 - [ ] T1.3 SQLAlchemy models mirroring the source shape; Alembic initial
       migration. The job's source `invoice_number` field is modelled as
       `job_number`; `job_id` is the only jobs↔invoices join key. Address id is
