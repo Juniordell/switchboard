@@ -38,6 +38,12 @@ from switchboard_core.knowledge.warranty_level_3 import Level3Result, Level3Verd
 from switchboard_core.knowledge.warranty_level_3 import (
     evaluate_level_3 as evaluate_level_3,
 )
+from switchboard_core.knowledge.warranty_notes import (
+    NoteWarrantyClaim,
+)
+from switchboard_core.knowledge.warranty_notes import (
+    classify_note_warranty_term as classify_note_warranty_term,
+)
 
 
 def build_all(session: Session) -> dict[str, int]:
@@ -60,10 +66,12 @@ __all__ = [
     "AddressCandidate",
     "Level3Result",
     "Level3Verdict",
+    "NoteWarrantyClaim",
     "ResolveAddressResult",
     "build_all",
     "build_canonical_addresses",
     "build_install_dates",
+    "classify_note_warranty_term",
     "evaluate_level_3",
     "job_canonical_id",
     "jobs_at_canonical_address",
