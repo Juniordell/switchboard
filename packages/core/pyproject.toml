@@ -1,0 +1,15 @@
+[project]
+name = "switchboard-core"
+version = "0.1.0"
+description = "Shared domain library: records, derived knowledge and tool implementations"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "pydantic==2.13.5",
+]
+
+[build-system]
+requires = ["hatchling==1.32.0"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/switchboard_core"]
