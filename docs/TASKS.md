@@ -255,10 +255,28 @@ Work one at a time. Do not skip ahead. Each task ends with `ruff check` and
       needs, so re-running it here would be a different and weaker
       measurement than T2.5's. It needs its own query set; flagged rather
       than faked.
-- [ ] T4.3 `evals/baseline.json` measured from the T3.1 `duration_ms` log, per
+- [x] T4.3 `evals/baseline.json` measured from the T3.1 `duration_ms` log, per
       tool class, plus a GitHub Actions workflow that fails on regression.
       Layers 0 and 1 and Layer 4 on every commit; Layer 4 reads the log the
       run it belongs to produced.
+      The pytest session captures the `switchboard_core.tools` logger into
+      `evals/last_run_tool_calls.jsonl`, and `evals/layer4.py` asserts p95
+      per **kind** — a field `tool_call` now records, so the taxonomy lives
+      in the tool rather than in a map the harness keeps. Baseline measured:
+      Layer 1 **37/37 graded** (`role_claim_unverified` excluded as an
+      intentional red owned by Layer 3b), SQL p95 9.9 ms against a 40 ms
+      budget, hybrid 2.8 ms on `postgres_ms`, write 3.9 ms. Both gates
+      verified against **planted** regressions: a green turning red, a p95
+      past budget, and a p95 2% above baseline each exit 1.
+      `.github/workflows/harness.yml` runs lint, Layer 0, migrate, load,
+      verify_load, the full suite, then Layer 4, then Layer 1 when
+      `OPENAI_API_KEY` is configured — and warns that a skip is not a pass
+      when it is not.
+      Fixed along the way: `statistics.quantiles` defaults to a method that
+      **extrapolates past the observed range**, which had produced a p95
+      above the max. `scripts/prose_measurements.py` carried the same
+      default, so T2.5's published figures are conservative by up to ~10% —
+      the safe direction for a budget, now stated rather than implicit.
 
 ## Phase 5 — Voice
 - [ ] T5.1 Single LiveKit agent, cascade pipeline, tools bound, dialable
