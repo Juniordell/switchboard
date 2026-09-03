@@ -206,7 +206,18 @@ The first baseline is measured, not chosen.
   baseline each exit 1.
 - An `intentional_red` case is excluded from the gate and reported by name.
 - **Every commit:** Layer 0, Layer 1, plus Layer 4 over the calls Layer 1
-  produced.
+  produced — *on a runner that has the dataset*. See below.
+- **What hosted CI can actually run.** `CLAUDE.md` hard rule 1 forbids
+  committing `data/`, so a GitHub-hosted runner has no `jobs.jsonl` and
+  nothing that reads the loaded database can execute there. Lint, format and
+  Layer 0 run unconditionally; the suite, the number-provenance case and
+  Layer 4 are gated on the dataset, and Layer 1 additionally on
+  `OPENAI_API_KEY`. `.github/workflows/harness.yml` announces by name
+  whatever did not run, because a workflow that is green because it did less
+  is worse than a red one. **A green run of that workflow is therefore not
+  the same claim as a green local gate**, which is where the full harness
+  actually runs today. Point a runner at the dataset — `SWITCHBOARD_DATA_DIR`
+  is honoured — and the gate above applies in full.
 - **Subset per commit:** Layers 2 and 3.
 - **Pre-deploy, in full:** Layers 2, 3, 3b, and Layer 4 over all of it.
 - Every failure found by calling the agent becomes a permanent case.
