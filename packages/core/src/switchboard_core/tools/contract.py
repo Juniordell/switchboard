@@ -90,6 +90,12 @@ def tool_call(
             except ToolDomainError as exc:
                 return ToolError(tool=name, error=type(exc).__name__, message=str(exc))
 
+        #: What this tool was declared as, readable without unwrapping the
+        #: closure. The HTTP layer publishes it and the hard-rule-4 guard
+        #: asserts on it, so neither has to keep its own table in step.
+        wrapper.tool_name = name
+        wrapper.tool_agent = agent
+
         return wrapper
 
     return decorator
