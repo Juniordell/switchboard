@@ -314,6 +314,27 @@ covered customer they are not covered.
 Levels **4, 5 and 6** are spoken as uncertain and offered for human check. See
 the refusal rules in `docs/AGENTS.md`.
 
+### Implemented in `evaluate_warranty_status` (T2.3b)
+
+**Level 1 is the only level that can return `covered=no`.** Levels 2 and 3
+only ever assert coverage or step aside; level 4 asserts neither ("in
+flight"); level 5 never independently returns a verdict. A denial always
+traces back to a tech's own words in a note.
+
+Level 1's note search caught a real classifier bug worth recording here as a
+warning to future editors of that pattern list: a plain check for "not under
+warranty" also fires on **conditional** phrasing - "...recommend replacing to
+get a warranty **if it is not under warranty** it is low..." is a hedge about
+refrigerant charge, not an assertion about the unit. 21 of 375
+warranty-mentioning notes in this dataset are this shape. See
+`warranty_notes.py`.
+
+Equipment scoping is a strict filter, not a preference: when the caller names
+equipment, only notes and line items that mention it are considered at levels
+1 and 2, and a mismatch falls through rather than answering about the wrong
+part. Levels 3-5 are equipment-agnostic (labor warranty and office tags are
+address-level facts, not per-part ones).
+
 ## Frequent terms in notes
 
 **These are occurrence counts, not note counts.** A term appearing three times

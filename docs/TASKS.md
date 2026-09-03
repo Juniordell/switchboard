@@ -72,11 +72,23 @@ Work one at a time. Do not skip ahead. Each task ends with `ruff check` and
       on delete from `canonical_addresses`, needed once a second table
       derived by a different build step references the same rebuilt-every-run
       parent.
-- [ ] T2.3b `warranty_status` derived table implementing the six-level
-      precedence rule in `docs/DATA.md`, scoped to `canonical_id` plus named
-      equipment, always returning the basis and the level. Line item match is
-      `ILIKE '%warrant%'` (64 items), with the exact prefix as the parsed case
-      and the 3 named exceptions handled. `Warranty Complete` is neutral.
+- [x] T2.3b `evaluate_warranty_status`, the six-level precedence rule from
+      `docs/DATA.md`, scoped to `canonical_id` plus named equipment, never a
+      job. A typed function reading `source` and `knowledge.install_dates` at
+      query time, not a materialised table - same shape as `resolve_address`
+      (T2.1), and for the same reason: level 2's line-item match and level
+      1's note text are lexical checks over an equipment filter supplied at
+      call time, not something a precomputed table can be parameterised by.
+      Level 3 delegates to `evaluate_level_3` (built ahead of this task).
+      Level 1 is the only level that can return `covered=no`; levels 2 and 3
+      never deny, and level 5 (`Warranty Complete`) never independently
+      returns a verdict - proven with one of the 24 real tagged jobs, alone
+      at its address, landing on level 6 `unknown`, never level 5 `no`.
+      Returns `covered` (yes/no/unknown, never a bare bool), `level` (1-6),
+      `basis`, `evidence` (one job, invoice, or note), `confidence`. 38 tests
+      total across the three new modules, all against real fixtures found by
+      scanning the loaded database for a canonical address whose only
+      warranty signal is the level under test.
 - [ ] T2.4 Callback chain linking, outstanding balances
 - [ ] T2.5 Note chunking, embeddings, `tsvector`, RRF hybrid query. Every
       returned date is the job's service date, in a `job_service_date` field.
