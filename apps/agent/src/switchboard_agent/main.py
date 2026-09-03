@@ -41,6 +41,7 @@ from livekit.agents.voice.room_io import RoomOptions
 from sqlalchemy import text
 
 from switchboard_agent.agents import TriageAgent
+from switchboard_agent.transcript import capture_transcript
 from switchboard_core.db.session import create_db_engine, session_factory
 from switchboard_core.observability import record_tool_calls
 
@@ -145,6 +146,8 @@ async def entrypoint(ctx: JobContext) -> None:
             }
         },
     )
+
+    capture_transcript(session, call_id)
 
     await session.start(
         agent=TriageAgent(call_id),
