@@ -28,6 +28,10 @@ from switchboard_core.knowledge.callback_chain import (
 from switchboard_core.knowledge.callback_chain import (
     find_callback_source as find_callback_source,
 )
+from switchboard_core.knowledge.customer_balance import CustomerBalance
+from switchboard_core.knowledge.customer_balance import (
+    get_customer_balance as get_customer_balance,
+)
 from switchboard_core.knowledge.job_address import job_canonical_id as job_canonical_id
 from switchboard_core.knowledge.job_address import (
     jobs_at_canonical_address as jobs_at_canonical_address,
@@ -88,6 +92,7 @@ __all__ = [
     "LABOR_WARRANTY_MONTHS",
     "SERVICE_CALLBACK_TAG",
     "AddressCandidate",
+    "CustomerBalance",
     "Level3Result",
     "Level3Verdict",
     "NoteWarrantyClaim",
@@ -103,6 +108,7 @@ __all__ = [
     "evaluate_level_3",
     "evaluate_warranty_status",
     "find_callback_source",
+    "get_customer_balance",
     "job_canonical_id",
     "jobs_at_canonical_address",
     "resolve_address",
