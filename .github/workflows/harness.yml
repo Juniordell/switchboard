@@ -4,11 +4,23 @@ name: harness
 # Layer 4 over the calls those layers produced. Non-zero exit on regression
 # beyond the 0.02 band.
 #
-# The split below is about what needs a key, not about what matters. Layer 0
-# and the number-provenance case are the two things that must never be
-# skippable, and neither needs one - they read the database and the source
-# tree. Layer 1 drives a model, so it runs when OPENAI_API_KEY is configured
-# and is reported as skipped when it is not, never as passed.
+# Two things this workflow cannot assume it has, and neither is a bug:
+#
+# 1. **The dataset.** CLAUDE.md forbids committing `data/`, so a hosted
+#    runner has no jobs.jsonl. Everything that reads the loaded database -
+#    the suite, the number-provenance case, Layer 4 - is gated on the data
+#    being present and is reported as NOT RUN when it is not.
+# 2. **A model key.** Layer 1 drives a model, so it runs when
+#    OPENAI_API_KEY is configured.
+#
+# What runs unconditionally is what needs neither: lint, format, and Layer 0,
+# which is an AST scan over the source tree. Everything skipped is announced
+# as skipped. A workflow that is green because it did less is worse than a
+# red one, so nothing here reports a skip as a pass.
+#
+# To run the full harness in CI, make the dataset available to the runner -
+# a self-hosted runner with `data/` in place, or `SWITCHBOARD_DATA_DIR`
+# pointing at it - and set the OPENAI_API_KEY secret.
 
 on:
   push:
@@ -61,8 +73,18 @@ jobs:
       - name: Layer 0 - structural guards
         run: uv run pytest packages/core/tests/test_no_job_invoice_number.py -q
 
-      # ---- The database the rest of the layers read.
+      # ---- Everything below needs the dataset, which is not in the repo.
+      - name: Is the dataset available?
+        id: data
+        run: |
+          if [ -f data/jobs.jsonl ] || [ -n "${SWITCHBOARD_DATA_DIR:-}" ]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Create the Postgres extensions
+        if: steps.data.outputs.present == 'true'
         # docker-compose gets these from infra/postgres/initdb, which a
         # service container never runs - it has no way to mount the file.
         # Same statements, same idempotency, applied here instead.
@@ -73,31 +95,43 @@ jobs:
             "SELECT extname FROM pg_extension ORDER BY extname"
 
       - name: Migrate
+        if: steps.data.outputs.present == 'true'
         working-directory: packages/core
         run: uv run alembic upgrade head
 
       - name: Load
+        if: steps.data.outputs.present == 'true'
         run: uv run python -m switchboard_core.load
 
       - name: Verify the load matches docs/DATA.md
+        if: steps.data.outputs.present == 'true'
         run: uv run python scripts/verify_load.py
 
       # ---- Full suite. Carries Layer 1's number-provenance case, the
       #      hard-rule-4 guard, and writes the tool call log Layer 4 reads.
       - name: Tests
+        if: steps.data.outputs.present == 'true'
         run: uv run pytest -q
 
       # ---- Layer 4, over the calls the step above produced.
       - name: Layer 4 - latency per tool class
+        if: steps.data.outputs.present == 'true'
         run: uv run python evals/layer4.py
 
       # ---- Layer 1. Needs a model, so it needs a key.
       - name: Layer 1 - tool selection
-        if: ${{ env.OPENAI_API_KEY != '' }}
+        if: ${{ env.OPENAI_API_KEY != '' && steps.data.outputs.present == 'true' }}
         run: uv run python evals/runner.py
 
-      - name: Layer 1 - skipped
-        if: ${{ env.OPENAI_API_KEY == '' }}
+      - name: Say what did not run
+        if: ${{ always() }}
         run: |
-          echo "::warning title=Layer 1 skipped::OPENAI_API_KEY is not set."
-          echo "Layer 1 grades tool selection and did not run. A skip is not a pass."
+          if [ "${{ steps.data.outputs.present }}" != "true" ]; then
+            echo "::warning title=Dataset not available::data/ is not committed \
+          (CLAUDE.md hard rule 1). The suite, the number-provenance case and \
+          Layer 4 did NOT run. A skip is not a pass."
+          fi
+          if [ -z "${OPENAI_API_KEY}" ]; then
+            echo "::warning title=Layer 1 not run::OPENAI_API_KEY is not set. \
+          Layer 1 grades tool selection and did NOT run. A skip is not a pass."
+          fi
