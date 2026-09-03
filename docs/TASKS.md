@@ -6,7 +6,7 @@ Work one at a time. Do not skip ahead. Each task ends with `ruff check` and
 ## Phase 1 — Foundation
 - [x] T1.1 uv workspace, four packages, ruff + pytest config, Dockerfile per app
 - [x] T1.2 docker-compose: Postgres 17 with `vector` and `pg_trgm`, api, web
-- [ ] T1.3 SQLAlchemy models mirroring the source shape; Alembic initial
+- [x] T1.3 SQLAlchemy models mirroring the source shape; Alembic initial
       migration. The job's source `invoice_number` field is modelled as
       `job_number`; `job_id` is the only jobs↔invoices join key. Address id is
       nullable. `street_line_2` normalises `null` and `""` to the same value.
@@ -18,7 +18,13 @@ Work one at a time. Do not skip ahead. Each task ends with `ruff check` and
       by qualified name. Asserts the inverse too: the `invoices` model still
       carries `invoice_number`, so the guard cannot be passed by deleting the
       concept. Runs on every commit; see `docs/HARNESS.md` Layer 0.
-- [ ] T1.4 Idempotent loaders for jobs, invoices, customers, employees
+- [ ] T1.4 Idempotent loaders for jobs, invoices, customers, employees. No
+      field from the `.jsonl` is dropped, including ones empty in this export.
+      Money stays in cents. The loader logs a WARNING for every value of
+      `work_status`, `invoice.status` or `item.type` outside the known sets in
+      `switchboard_core.db.source`, with a count, and loads it anyway: the
+      schema has no CHECK constraints, and absence of a constraint must not
+      become absence of visibility.
 - [ ] T1.5 `scripts/verify_load.py` asserting the measured shape in
       `docs/DATA.md`: 1,992 jobs · 6,954 notes · 1,700 invoices · 4,390 line
       items · 732 customers (683 homeowner / 49 business) · 23 employees ·
