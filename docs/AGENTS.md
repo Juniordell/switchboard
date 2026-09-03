@@ -95,10 +95,30 @@ write-holding agent in order to be handed to a person. The hard rule in
 | `get_schedule` | Service | SQL | Today or a date range, scoped to caller role. A homeowner **or property manager** may only see their own jobs, and a request from one without a resolved `customer_id` fails validation rather than querying. `tech` and `owner` are internal and see the whole day. Excludes stale scheduled jobs — see `docs/SCOPE.md`. |
 | `web_search` | Service | web | Weather, model numbers, supplier hours. Always returns the source. Try `search_notes` first for anything the company may already know. |
 | `find_availability` | Dispatch | SQL | Gaps in the assumed working day, against future scheduled jobs only. Returns **one row per window** with an available tech — a caller is offered times, not a roster. Bookable techs are `role = 'field tech'` (15 of 23), read off the record rather than an exclusion list. The working day is an assumption, not data, and the caveat is carried in the result — see `docs/SCOPE.md`. |
-| `book_job` | Dispatch | write | Requires explicit spoken confirmation. Idempotency key from `call_id + slot`. Emits to the dashboard feed. |
-| `move_job` | Dispatch | write | Same rules. Writes an audit row with old and new values. |
-| `add_note` | Dispatch | write | Appends a note attributed to the agent and the call. |
+| `book_job` | Dispatch | write | Requires explicit spoken confirmation — a required non-empty field holding **what the caller actually said**, not a bool claiming they said it. Idempotency key from `call_id + slot + address` (the address is an addition to the spec: one call booking two buildings into the same window is two appointments, not a retry — see `docs/DECISIONS.md`). Writes `ops.booked_jobs`, never `source.jobs`. Emits to the dashboard feed via the `write_audit` trigger. Returns **no job number**: the field service system assigns those. |
+| `move_job` | Dispatch | write | Same rules. Key is `call_id + job_id + the new slot`. Writes an audit row with old and new values. The job itself is never mutated — the new slot is a row in `ops.job_reschedules` that `get_schedule` applies as an overlay. Works on an agent booking as readily as on a loaded job. |
+| `add_note` | Dispatch | write | Appends a note attributed to the agent and the call, into `ops.agent_notes` — `source.notes` is the loaded export and `verify_load.py` asserts its 6,954 rows. Key is `call_id + job_id + content`, since a note has no slot. **No spoken confirmation:** writing down what was said changes nothing about the caller's schedule or account. |
 | `transfer_to_human` | any | **control** | Logs reason, transcript, and every promise made. Writes an audit row. Mutates no customer record. Then stops. |
+
+### Writes: idempotency, audit, and where they land (T3.3)
+
+Every write tool derives a key from the arguments that define *the same
+write*, and `ops.write_audit.idempotency_key` is `UNIQUE`. The constraint is
+the guard — a lookup before the insert is a race two retries can both win. A
+retry returns the original result with `replayed=true`: never an error, never
+a second booking.
+
+Nothing is written into `source`. See "Writes are an overlay" in
+`docs/ARCHITECTURE.md` for why, and for the three consequences that follow
+(effective staleness, no job number on an agent booking, no foreign keys from
+`ops` to `source`).
+
+Every audit row fires a `pg_notify` on `switchboard_writes` from a database
+trigger, so a write cannot forget to announce itself and a rolled-back write
+announces nothing.
+
+`transfer_to_human` is `control`, not `write`. It writes an audit row when
+T5.4 builds it; the table already carries it.
 
 ## Which number the agent speaks
 

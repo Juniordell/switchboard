@@ -163,7 +163,25 @@ Work one at a time. Do not skip ahead. Each task ends with `ruff check` and
       construct a `get_schedule` request without a resolved `customer_id`.
       No trigram index for `resolve_customer` and no migration: 732
       customers is a sub-millisecond scan. 76 tests.
-- [ ] T3.3 All write tools with idempotency and audit rows
+- [x] T3.3 All write tools with idempotency and audit rows — `book_job`,
+      `move_job`, `add_note`, all Dispatch, in a new **`ops` schema**.
+      Writing into `source` was never an option: `verify_load.py` asserts
+      1,992 jobs and 6,954 notes on every task, so the first booking would
+      have failed the gate. Writes are an overlay and `get_schedule` unions
+      them, so a caller is told about the appointment they just made.
+      `ops.write_audit.idempotency_key` is `UNIQUE` — the constraint *is*
+      the retry guard, since a lookup first is a race two retries both win —
+      and row ids are derived from the key, making the primary key a second
+      guard. A `NOTIFY` on `switchboard_writes` fires from a **trigger**,
+      not the tools, so a write cannot forget to announce itself and a
+      rolled-back one announces nothing (T6.2 consumes it). Spoken
+      confirmation is a required non-empty field holding the caller's own
+      words. **override:** the key is `call_id + slot + address`, not the
+      spec's `call_id + slot` — one call booking two buildings into the same
+      window is two appointments. An agent booking carries **no job number**;
+      the field service system assigns those. Hard rule 4 is a guard test.
+      46 tests, including a real committed `NOTIFY` delivery.
+      `transfer_to_human` is `control`, not `write` — T5.4.
 - [ ] T3.4 `web_search`
 - [ ] T3.5 FastAPI exposure of every tool + `scripts/smoke_tools.sh`
 

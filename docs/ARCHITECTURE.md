@@ -18,8 +18,53 @@ typed in an attic, and only retrieval finds that.
 | Entities | Canonical addresses and customers, `pg_trgm` index, alias table | `resolve_address`, `resolve_customer` — return candidates + confidence, never a silent guess |
 | Knowledge | `install_date` materialised at load (the one table here that reduces many candidates to one); `visit_history`, `warranty_status`, callback chains and balances computed at query time — see "Derived knowledge returns rows, not prose" below for why | Typed SQL tools, no model in the path |
 | Prose | One chunk per note, `vector` + `tsvector`, scoped to canonical address and job | `search_notes(entity_id, query)` — hybrid, RRF, entity filter required |
+| Writes | What the agent booked, moved or noted — `ops.booked_jobs`, `ops.job_reschedules`, `ops.agent_notes`, plus `ops.write_audit` | The three Dispatch write tools. Read paths union it with Records — see "Writes are an overlay" |
 
 Loaders are idempotent. Derived tables always trace back to a source row.
+
+## Writes are an overlay, never a mutation of `source`
+
+`source` mirrors `data/` row for row. `scripts/verify_load.py` asserts its
+exact counts — 1,992 jobs, 6,954 notes — on every task, and CLAUDE.md hard
+rule 1 freezes the files behind it. An appointment inserted into
+`source.jobs` would fail that verification immediately and would be a row
+with no origin.
+
+So everything the agent writes lands in `ops` and the read path unions the
+two. `get_schedule` reads `source.jobs` left-joined to `ops.job_reschedules`
+for the effective slot, unioned with `ops.booked_jobs`. A caller who books
+at 14:00 is told about that appointment for the rest of the call.
+
+Three consequences, all deliberate:
+
+- **Staleness is judged on the effective start.** Moving an abandoned
+  `scheduled` job into the future revives it, which is what moving it means.
+- **An agent booking has no job number.** Job numbers are assigned by the
+  field service system; inventing one risks colliding with a real number
+  exactly as `invoice_number` already collides with `job_number` in this
+  dataset. The agent confirms the appointment without quoting a number until
+  the office assigns one.
+- **`ops` tables carry no foreign key to `source.jobs`.** A reschedule or a
+  note can target a loaded job or one booked minutes ago, and no single
+  foreign key points at both tables. The tools check the target exists in
+  either place and return a typed error when it does not.
+
+### Idempotency and the audit row
+
+Every write derives a key from the arguments that define *the same write*,
+and `ops.write_audit.idempotency_key` is `UNIQUE`. That constraint **is** the
+retry guard: checking for the key before inserting is check-then-act, and two
+retries of one turn can both find nothing and both book. On conflict the tool
+reads back what the first attempt wrote and returns it with `replayed=true`.
+
+Row ids are derived from the key rather than generated, so a retry computes
+the same `job_id` and the primary key is a second, independent guard.
+
+Every insert into `ops.write_audit` fires a trigger that `pg_notify`s on
+`switchboard_writes`, which T6.2 turns into SSE. The trigger, rather than the
+tools, because a write that forgot to announce itself would be invisible with
+nothing failing — and because Postgres holds notifications until commit, a
+write that rolls back correctly announces nothing.
 
 `job_id` is the only join key between jobs and invoices. The field named
 `invoice_number` on a job is the **job number** and is loaded as `job_number`.
