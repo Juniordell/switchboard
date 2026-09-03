@@ -29,6 +29,7 @@ rather than from a guess about HVAC vocabulary.
 import contextlib
 import datetime
 import logging
+import uuid
 
 from livekit.agents import (
     AgentServer,
@@ -108,12 +109,27 @@ def _open_call(call_id: str, caller: str | None) -> None:
 
 
 def _close_call(call_id: str) -> None:
+    """Close the call row and queue it for the async agents.
+
+    T7.1: the trigger is the session ending. Queued in the same transaction
+    that marks the call over, so there is no window where a call is
+    finished and nothing is going to read it.
+    """
     with contextlib.suppress(Exception):
         sessions = session_factory(create_db_engine())
         with sessions() as session, session.begin():
             session.execute(
                 text("UPDATE ops.calls SET ended_at = :now WHERE call_id = :c"),
                 {"c": call_id, "now": datetime.datetime.now(datetime.UTC)},
+            )
+            session.execute(
+                text(
+                    "INSERT INTO ops.async_jobs (id, call_id, kind, status) "
+                    "SELECT :id, :c, 'extract', 'queued' WHERE NOT EXISTS ("
+                    "  SELECT 1 FROM ops.async_jobs WHERE call_id = :c "
+                    "  AND kind = 'extract' AND status IN ('queued','running'))"
+                ),
+                {"id": f"job_{uuid.uuid4().hex}", "c": call_id},
             )
 
 
