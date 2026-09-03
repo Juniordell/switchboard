@@ -14,7 +14,7 @@ from livekit.agents import AgentServer
 from switchboard_agent import main
 from switchboard_agent.text_client import NOT_MODEL_SELECTABLE
 from switchboard_agent.tool_bridge import build_tools
-from switchboard_core.tools import READ_TOOLS, WRITE_TOOLS
+from switchboard_core.tools import CONTROL_TOOLS, READ_TOOLS, WRITE_TOOLS
 
 DATA_MD = pathlib.Path(__file__).parents[3] / "docs" / "DATA.md"
 
@@ -33,8 +33,16 @@ class TestTheServer:
 class TestTheToolsItBinds:
     def test_it_binds_every_tool_the_harness_graded(self) -> None:
         bound = {t.info.name for t in build_tools("call_test")}
-        expected = (set(READ_TOOLS) | set(WRITE_TOOLS)) - NOT_MODEL_SELECTABLE
+        expected = (
+            set(READ_TOOLS) | set(WRITE_TOOLS) | set(CONTROL_TOOLS)
+        ) - NOT_MODEL_SELECTABLE
         assert bound == expected
+
+    def test_transfer_is_bound_as_control(self) -> None:
+        """Reachable from the read path: hard rule 4 is scoped to
+        customer-record writes, and transfer_to_human mutates none."""
+        bound = {t.info.name for t in build_tools("c", include_writes=False)}
+        assert "transfer_to_human" in bound
 
     def test_it_does_not_offer_the_logic_tool(self) -> None:
         """Offering a tool in production that Layer 1 never offered would

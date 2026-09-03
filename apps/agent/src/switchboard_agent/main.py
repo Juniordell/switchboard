@@ -1,8 +1,13 @@
-"""The voice agent: one agent, cascade pipeline, every tool bound.
+"""The voice agent: Triage, Service and Dispatch over one cascade pipeline.
 
-T5.1 is deliberately a single agent. The Triage / Service / Dispatch split
-and its permissions boundary arrive at T5.2; what this proves is that the
-pipeline runs, the tools bind, and a call can reach them.
+The call opens on Triage, which holds only `resolve_address` and
+`resolve_customer` - no job, invoice, note or schedule data is reachable
+before identity resolves. Triage hands to Service by returning the next
+agent from inside a tool call; Service hands to Dispatch the same way when
+the caller wants something written.
+
+Service cannot hold a write tool, and that is enforced where the classes are
+defined, not here and not in a prompt - see `switchboard_agent.agents`.
 
 **`AgentServer` with `@server.rtc_session`**, not the `WorkerOptions` +
 `cli.run_app(WorkerOptions(...))` shape the PyPI readme still shows. The
@@ -24,7 +29,6 @@ rather than from a guess about HVAC vocabulary.
 import logging
 
 from livekit.agents import (
-    Agent,
     AgentServer,
     AgentSession,
     JobContext,
@@ -33,7 +37,7 @@ from livekit.agents import (
     inference,
 )
 
-from switchboard_agent.tool_bridge import build_tools
+from switchboard_agent.agents import TriageAgent
 
 logger = logging.getLogger("switchboard_agent")
 
@@ -61,30 +65,6 @@ LLM_MODEL = "openai/gpt-4o-mini"
 TTS_MODEL = "inworld/inworld-tts-2"
 TTS_VOICE = "Ashley"
 
-INSTRUCTIONS = """You are the front desk for Gulf Breeze Air, an HVAC company \
-in Miami. You are on a phone call. Be brief: one or two sentences, no lists, \
-no markdown.
-
-How to work:
-- Dates, counts, schedules, balances and warranty come from the SQL tools,
-  never from note search. Never state one from memory.
-- Resolve the address or the customer before reading any job, invoice, note
-  or schedule data.
-- When a tool comes back with must_ask, ask the caller which one they mean.
-  Never pick for them.
-- Speak the JOB number to callers. An invoice number is spoken only when
-  citing an invoice, and is named as an invoice number.
-- A note has no date of its own. Date it by the visit: "from the visit on
-  14 June", never "a note from 14 June".
-- Never book or change anything without the caller saying yes in that turn,
-  and pass their own words as the confirmation.
-- Warranty at levels 4, 5 or 6 is spoken as uncertain and offered for a
-  human to check. "Warranty Complete" never means coverage ended.
-- If no tool grounds the answer, say so and offer to pass them to someone.
-  Refusing is a correct answer.
-
-Say hello, say you are Gulf Breeze Air, and ask how you can help."""
-
 server = AgentServer()
 
 
@@ -103,13 +83,16 @@ async def entrypoint(ctx: JobContext) -> None:
     )
 
     await session.start(
-        agent=Agent(instructions=INSTRUCTIONS, tools=build_tools(call_id)),
+        agent=TriageAgent(call_id),
         room=ctx.room,
         room_input_options=RoomInputOptions(),
     )
 
     await session.generate_reply(
-        instructions="Greet the caller as Gulf Breeze Air and ask how you can help."
+        instructions=(
+            "Greet the caller as Gulf Breeze Air and ask how you can help. "
+            "Do not ask for their address yet unless they pause."
+        )
     )
 
 
