@@ -15,3 +15,7 @@ evals/last_run_tool_calls.jsonl
 
 # Layer 3b reads the turn log a real call produced.
 evals/last_call_turns.jsonl
+
+# Frontend build artefacts.
+apps/web/dist/
+*.tsbuildinfo
