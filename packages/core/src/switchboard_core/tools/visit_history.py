@@ -29,7 +29,7 @@ class VisitHistoryOutput(ToolResult):
         return len(self.visits)
 
 
-@tool_call(name="get_visit_history", agent="Service")
+@tool_call(kind="SQL", name="get_visit_history", agent="Service")
 def get_visit_history(
     request: VisitHistoryRequest, *, call_id: str, session: Session
 ) -> VisitHistoryOutput:

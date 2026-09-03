@@ -46,7 +46,7 @@ class SearchNotesOutput(ToolResult):
         return {"embedding_ms": self.embedding_ms, "postgres_ms": self.postgres_ms}
 
 
-@tool_call(name="search_notes", agent="Service")
+@tool_call(kind="hybrid", name="search_notes", agent="Service")
 def search_notes(
     request: SearchNotesRequest, *, call_id: str, session: Session
 ) -> SearchNotesOutput:

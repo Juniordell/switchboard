@@ -49,7 +49,7 @@ class ScheduleOutput(ToolResult):
         return len(self.jobs)
 
 
-@tool_call(name="get_schedule", agent="Service")
+@tool_call(kind="SQL", name="get_schedule", agent="Service")
 def get_schedule(
     request: ScheduleRequest,
     *,

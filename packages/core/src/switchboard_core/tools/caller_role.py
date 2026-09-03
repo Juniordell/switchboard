@@ -148,7 +148,7 @@ def _score(request: CallerRoleRequest) -> tuple[dict[CallerRole, int], list[str]
     return scores, basis
 
 
-@tool_call(name="identify_caller_role", agent="Triage")
+@tool_call(kind="logic", name="identify_caller_role", agent="Triage")
 def identify_caller_role(
     request: CallerRoleRequest, *, call_id: str
 ) -> CallerRoleOutput:

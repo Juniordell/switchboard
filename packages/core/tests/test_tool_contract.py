@@ -44,7 +44,7 @@ class _AddressNotFoundError(ToolDomainError):
 
 class TestSuccess:
     def test_returns_the_result_unchanged(self) -> None:
-        @tool_call(name="resolve_address", agent="Triage")
+        @tool_call(kind="SQL", name="resolve_address", agent="Triage")
         def fn(request: _Request, *, call_id: str) -> _Result:
             return _Result(value=7)
 
@@ -56,7 +56,7 @@ class TestSuccess:
         """A real tool takes its `session` this way - injected by the
         caller, and deliberately not part of the logged `args`."""
 
-        @tool_call(name="get_visit_history", agent="Service")
+        @tool_call(kind="SQL", name="get_visit_history", agent="Service")
         def fn(request: _Request, *, call_id: str, session: str) -> _Result:
             return _Result(value=len(session))
 
@@ -64,7 +64,7 @@ class TestSuccess:
         assert result.value == 4
 
     def test_the_call_is_logged_through_the_composed_decorator(self, caplog) -> None:
-        @tool_call(name="resolve_address", agent="Triage")
+        @tool_call(kind="SQL", name="resolve_address", agent="Triage")
         def fn(request: _Request, *, call_id: str) -> _Candidates:
             return _Candidates(candidates=["a", "b"])
 
@@ -86,7 +86,7 @@ class TestCallIdIsMandatory:
     convention, an argument you cannot leave out."""
 
     def test_omitting_call_id_is_a_type_error(self) -> None:
-        @tool_call(name="resolve_address", agent="Triage")
+        @tool_call(kind="SQL", name="resolve_address", agent="Triage")
         def fn(request: _Request, *, call_id: str) -> _Result:
             return _Result(value=1)
 
@@ -94,7 +94,7 @@ class TestCallIdIsMandatory:
             fn(_Request(street="x"))
 
     def test_call_id_cannot_be_passed_positionally(self) -> None:
-        @tool_call(name="resolve_address", agent="Triage")
+        @tool_call(kind="SQL", name="resolve_address", agent="Triage")
         def fn(request: _Request, *, call_id: str) -> _Result:
             return _Result(value=1)
 
@@ -104,7 +104,7 @@ class TestCallIdIsMandatory:
 
 class TestDomainErrorsBecomeTypedResults:
     def test_a_domain_error_is_returned_not_raised(self) -> None:
-        @tool_call(name="resolve_address", agent="Triage")
+        @tool_call(kind="SQL", name="resolve_address", agent="Triage")
         def fn(request: _Request, *, call_id: str) -> _Result:
             raise _AddressNotFoundError("no candidate above 0.55")
 
@@ -115,7 +115,7 @@ class TestDomainErrorsBecomeTypedResults:
         assert result.message == "no candidate above 0.55"
 
     def test_the_failure_is_logged_before_it_becomes_a_result(self, caplog) -> None:
-        @tool_call(name="resolve_address", agent="Triage")
+        @tool_call(kind="SQL", name="resolve_address", agent="Triage")
         def fn(request: _Request, *, call_id: str) -> _Result:
             raise _AddressNotFoundError("nothing resolved")
 
@@ -132,7 +132,7 @@ class TestProgrammingErrorsPropagate:
     in a test rather than arrive as a polite sentence on a phone call."""
 
     def test_validation_error_propagates(self) -> None:
-        @tool_call(name="resolve_address", agent="Triage")
+        @tool_call(kind="SQL", name="resolve_address", agent="Triage")
         def fn(request: _Request, *, call_id: str) -> _Result:
             return _Result(value="not an int")  # the tool's own bug
 
@@ -140,7 +140,7 @@ class TestProgrammingErrorsPropagate:
             fn(_Request(street="x"), call_id="call_1")
 
     def test_key_error_propagates(self) -> None:
-        @tool_call(name="get_visit_history", agent="Service")
+        @tool_call(kind="SQL", name="get_visit_history", agent="Service")
         def fn(request: _Request, *, call_id: str) -> _Result:
             return _Result(value={}["missing"])
 
@@ -155,7 +155,7 @@ class TestProgrammingErrorsPropagate:
         wrapped as a tool.
         """
 
-        @tool_call(name="search_notes", agent="Service")
+        @tool_call(kind="SQL", name="search_notes", agent="Service")
         def fn(request: _Request, *, call_id: str) -> _Result:
             raise ValueError("entity_id must be a canonical_id or a job_id")
 
@@ -163,7 +163,7 @@ class TestProgrammingErrorsPropagate:
             fn(_Request(street="x"), call_id="call_1")
 
     def test_a_propagating_error_is_still_logged(self, caplog) -> None:
-        @tool_call(name="get_visit_history", agent="Service")
+        @tool_call(kind="SQL", name="get_visit_history", agent="Service")
         def fn(request: _Request, *, call_id: str) -> _Result:
             raise KeyError("missing")
 

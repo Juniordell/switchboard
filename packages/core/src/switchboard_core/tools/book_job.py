@@ -64,7 +64,7 @@ class BookJobOutput(ToolResult):
     replayed: bool
 
 
-@tool_call(name="book_job", agent="Dispatch")
+@tool_call(kind="write", name="book_job", agent="Dispatch")
 def book_job(
     request: BookJobRequest, *, call_id: str, session: Session
 ) -> BookJobOutput:
