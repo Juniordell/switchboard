@@ -448,11 +448,15 @@ name = "switchboard-agent"
 version = "0.1.0"
 source = { editable = "apps/agent" }
 dependencies = [
+    { name = "httpx" },
     { name = "switchboard-core" },
 ]
 
 [package.metadata]
-requires-dist = [{ name = "switchboard-core", editable = "packages/core" }]
+requires-dist = [
+    { name = "httpx", specifier = "==0.28.1" },
+    { name = "switchboard-core", editable = "packages/core" },
+]
 
 [[package]]
 name = "switchboard-api"
