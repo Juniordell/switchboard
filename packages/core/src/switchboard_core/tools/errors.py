@@ -41,3 +41,15 @@ class JobNotFoundError(ToolDomainError):
     agent misheard a number, or the job belongs to a different customer.
     Not a defect, and not something to write against blindly.
     """
+
+
+class WebSearchUnavailableError(ToolDomainError):
+    """Tavily is unreachable, unauthorised, or not configured.
+
+    Same judgement as `RetrievalUnavailableError`: not a defect in the
+    calling path, not fixable by a retry inside the tool, and on a live call
+    the agent has to be able to say it could not look something up rather
+    than drop the turn. `web_search` is also the one tool with no local
+    fallback - the company's own knowledge is in `search_notes`, which is
+    why `docs/AGENTS.md` says to try that first.
+    """

@@ -48,6 +48,7 @@ from switchboard_core.tools.errors import (
     InvalidEntityIdError,
     JobNotFoundError,
     RetrievalUnavailableError,
+    WebSearchUnavailableError,
 )
 from switchboard_core.tools.move_job import (
     MoveJobOutput,
@@ -84,6 +85,11 @@ from switchboard_core.tools.warranty_status import (
     WarrantyStatusRequest,
     get_warranty_status,
 )
+from switchboard_core.tools.web_search import (
+    WebSearchOutput,
+    WebSearchRequest,
+    web_search,
+)
 
 #: Every read tool, keyed by the name `docs/AGENTS.md` gives it. The T4.0
 #: client binds these and T3.5 exposes them; both look a tool up by the
@@ -98,6 +104,7 @@ READ_TOOLS = {
     "search_notes": search_notes,
     "get_schedule": get_schedule,
     "find_availability": find_availability,
+    "web_search": web_search,
 }
 
 #: Every write tool. `agent` is "Dispatch" on all of them, and
@@ -144,6 +151,9 @@ __all__ = [
     "VisitHistoryRequest",
     "WarrantyStatusOutput",
     "WarrantyStatusRequest",
+    "WebSearchOutput",
+    "WebSearchRequest",
+    "WebSearchUnavailableError",
     "add_note",
     "book_job",
     "find_availability",
@@ -158,4 +168,5 @@ __all__ = [
     "resolve_customer",
     "search_notes",
     "tool_call",
+    "web_search",
 ]
