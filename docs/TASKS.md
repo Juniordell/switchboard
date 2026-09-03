@@ -205,10 +205,20 @@ Work one at a time. Do not skip ahead. Each task ends with `ruff check` and
       HTTP tests alongside it.
 
 ## Phase 4 — Harness v1 (before the agent)
-- [ ] T4.0 Minimal text tool client: binds the Pydantic tool schemas to a model,
+- [x] T4.0 Minimal text tool client: binds the Pydantic tool schemas to a model,
       takes an utterance, returns the tool calls requested. No audio, no
       LiveKit session, no agent class, no handoffs. This is what makes Layers 1
       and 4 runnable before Phase 5 exists.
+      `switchboard_agent.text_client`, in `apps/agent` because that is what
+      Phase 5 replaces in place. The seam is
+      `choose_tools(utterance) -> list[ToolCall]`; while it holds, the runner
+      does not change. **It executes nothing** — selection and execution are
+      different jobs, which is what lets a golden case assert on a `book_job`
+      call without booking anything. Binds all **13** tools, not 12: dropping
+      `web_search` would delete the `search_notes`-first distinction Layer 1
+      grades. Schemas come from the tools' own Pydantic models, so there is no
+      hand-written copy to drift. 12 tests; the live one is skipped unless
+      `HARNESS_LIVE=1`, since each run costs an API call.
 - [ ] T4.1 40 golden utterances in `evals/golden/tools.yaml`, including the
       **number-provenance case**: the caller asks for the number of a service
       and the assertion is that every number returned traces to a row whose

@@ -240,3 +240,32 @@ rather than discovered in the diff.
 | 129 | The smoke script starts and stops its own uvicorn, and deletes the rows its write tools committed | A smoke test that needs a server started by hand gets run less; one that leaves bookings behind poisons the next `get_schedule` it runs. Verified that `ops` is empty afterwards rather than assumed | scripts/smoke_tools.sh |
 | 130 | A missing `TAVILY_API_KEY` reports `web_search` as **SKIP**, never as a pass, and the summary says so | The whole point of entry 80's refusal-to-fabricate discipline. A green line for a tool nobody exercised is the failure mode this script exists to prevent | scripts/smoke_tools.sh |
 | 131 | Two monkeypatch targets had to be resolved through `sys.modules` | `tools/__init__.py` and `prose/__init__.py` both re-export a function whose name matches its own submodule, so the dotted string form resolves to the function. It surfaced in `web_search` only in the full suite, where the import order differs from running the file alone - a real ordering bug, not flakiness | tests/test_tools_web_search.py, tests/test_tools_search_notes.py |
+
+## 2026-09-03 — T4.0 the minimal text tool client
+
+First live run against the real model, before any golden set existed, to
+see whether the schemas are usable at all:
+
+| utterance | tools chosen |
+|---|---|
+| when were you last at 89 harborlight shores | `resolve_address` |
+| what do I owe you? this is Serena Weeks | `resolve_customer` |
+| what did the tech do about the drain on job 28e341b2… | `search_notes` |
+| am I still under warranty on the condenser at 823 Marlin Cay | `resolve_address` |
+| I need somebody out here thursday, my house is not cooling | **(none)** |
+| is r410a being phased out? | `web_search` |
+
+`docs/HARNESS.md`'s own Layer 1 example passes: the first utterance opens
+with `resolve_address` and not `search_notes`. The third is right for a
+reason worth naming — the caller supplied a resolved job id, which is the
+only condition under which `search_notes` may open a turn.
+
+| # | Decision | Why | Lives in |
+|---|---|---|---|
+| 132 | The client lives in `apps/agent`, not `packages/core` | Phase 5 replaces it in place with the real cascade agent, and `packages/core` is the domain library — records, knowledge, prose, tools. A model client is not domain knowledge, and putting it there would make every consumer of the library depend on one | apps/agent/text_client.py |
+| 133 | It returns tool calls and **executes nothing** | Layer 1 grades selection and arguments. Executing would mean a golden case for `book_job` writes a booking every time the harness runs, and would fold two failures — chose the wrong tool, ran the tool wrong — into one signal. A test asserts `ops.booked_jobs` stays empty after a `book_job` selection | apps/agent/text_client.py |
+| 134 | **override** All 13 tools are bound, where the task said twelve | Dropping `web_search` removes the one distinction that tests `docs/AGENTS.md`'s "try `search_notes` first for anything the company may already know" — a selection rule Layer 1 exists to grade. The live run confirms the model does separate them: a job's drain history went to `search_notes`, an industry question about R-410A went to `web_search` | apps/agent/text_client.py |
+| 135 | Schemas are generated from the tools' own Pydantic request models | The same objects the HTTP layer validates and T3.5 publishes at `GET /tools`. A hand-written copy for the model would be a second definition to keep in step, and Layer 1 would then be grading against a shape production does not use | apps/agent/text_client.py |
+| 136 | A broken model call raises rather than returning an empty list | This is harness plumbing, not a tool, so T3.1's contract does not apply: an HTTP 500 from the model is a defect the runner must see. An empty list means the model chose no tool, which is a real and different outcome the golden set has to be able to assert on | apps/agent/text_client.py |
+| 137 | The system prompt carries only the rules that change which tool gets picked | Layer 1 grades selection. A full instruction set here would mean the harness is grading the prompt rather than the binding, and Phase 5 owns the real prompt anyway | apps/agent/text_client.py |
+| 138 | The live model test is opt-in behind `HARNESS_LIVE=1` | Every run costs an API call, and the suite runs on every task. The stubbed tests use a real `httpx.MockTransport`, so the outgoing request is still built and asserted — only the network is replaced. Verified the live test actually passes when enabled, which caught an autouse fixture that was feeding it a fake key and would have made it unpassable | apps/agent/tests/test_text_client.py |
