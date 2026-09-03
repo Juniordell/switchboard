@@ -173,29 +173,47 @@ hybrid retrieval turn and an indexed lookup turn are not the same operation.
 | Tool class | Budget | Filler |
 |---|---|---|
 | SQL — `resolve_*`, `get_visit_history`, `get_warranty_status`, `get_schedule`, `find_availability` | **40 ms** | no |
-| Hybrid retrieval — `search_notes` | **250 ms** | **yes, by default** |
+| Hybrid retrieval — `search_notes` | **1,300 ms** (measured p95; see below) | **yes, by default** |
 | Web — `web_search` | 1,500 ms | yes, by default |
 
 The SQL path lands at 770 ms against a target of 800. It is an indexed lookup
 against precomputed tables, which is why 40 ms is realistic.
 
-`search_notes` cannot make that target and should not pretend to. It embeds the
-caller's utterance before it touches Postgres — a network round trip that is
-serial with everything after it — then runs `ts_rank_cd`, pgvector and the
-fusion. Its budget is 250 ms and it **speaks filler at dispatch time, by
-default rather than by exception**, so time to first word stays at the 730 ms
-fixed cost and the answer follows behind it.
+**`search_notes`'s budget is measured, not the placeholder 250 ms this section
+used to guess.** Real numbers, `scripts/prose_measurements.py`, 30 scoped
+searches against the live corpus, embedding call and Postgres kept separate
+because only one of them is a network call to a service this codebase doesn't
+operate:
+
+| Phase | p50 | p95 | max |
+|---|---|---|---|
+| Embedding call (OpenAI, `text-embedding-3-small`) | 463 ms | **1,298 ms** | 2,029 ms |
+| Postgres (the RRF query, entity-filtered) | 2.3 ms | 4.7 ms | 6.4 ms |
+
+The embedding call is the entire budget, by roughly 280x at p95 - Postgres was
+never the risk the 250 ms guess implied. `search_notes` **speaks filler at
+dispatch time, by default rather than by exception**, so time to first word
+stays at the 730 ms fixed cost and the answer follows behind it - a guess that
+turned out to be the right call once measured, not a coincidence: nothing
+about an entity-filtered 3-10 row Postgres query was ever going to be the slow
+part, and the fix for the actual slow part (a synchronous network round trip
+to OpenAI) is the same fix that was already in place.
 
 Baselines are **measured, not asserted**. The tool contract logs `duration_ms`
 from T3.1 onward; `evals/baseline.json` is populated from those logs, and
 Layer 4 asserts p95 per tool class against it. A budget nobody has measured is
 a number that gets edited downward until it means nothing.
 
-Open question to settle with Layer 1, not by assumption: after the entity
-filter the candidate set is 3–10 rows, and dense retrieval may not be earning
-its keep against `ts_rank_cd` plus trigram at that size. Dropping the dense leg
-removes the embedding round trip from the hot path entirely. Measure before
-building the full T2.5.
+**Settled, not open**: after the entity filter the candidate set is 3-10 rows,
+and the question was whether dense retrieval earns its keep against
+`ts_rank_cd` alone at that size. Measured against 20 real, entity-scoped
+queries phrased as a caller would speak them (`scripts/prose_measurements.py`;
+see `docs/DECISIONS.md`): the hybrid top result and the lexical-only top
+result **agreed on only 4 of 20** — in 14 of the 16 disagreements,
+`ts_rank_cd` matched **no note at all**, because `plainto_tsquery` requires
+every significant term to appear and natural speech rarely shares exact
+stemmed vocabulary with a tech's shorthand. The hybrid leg is kept, and now
+for a measured reason instead of an assumed one.
 
 ## Why cascade rather than speech-to-speech
 

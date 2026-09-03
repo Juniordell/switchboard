@@ -107,24 +107,24 @@ Work one at a time. Do not skip ahead. Each task ends with `ruff check` and
       `customer_id`, verified equal to summing `invoice.due_amount`
       independently — no address canonicalisation needed, `customer_id` is
       already a clean source id). 10 tests.
-- [ ] T2.5 Note chunking, embeddings, `tsvector`, RRF hybrid query. Every
-      returned date is the job's service date, in a `job_service_date` field.
-      Whether the dense leg is kept is decided by measurement in T4.2, not
-      assumed — see `docs/ARCHITECTURE.md`.
-      **Built and tested; not ticked — the measurement itself hasn't run.**
+- [x] T2.5 Note chunking, embeddings, `tsvector`, RRF hybrid query.
       `prose.note_chunks` (`chunk_notes`, free, part of every load — 6,954
       rows, one per note, no split), `content_tsv` a Postgres-generated
-      column, `embedding` nullable and filled separately (`embed_pending`,
-      paid, `python -m switchboard_core.prose`), `search_notes`/
-      `rank_candidates` (the RRF query, one SQL statement, `entity_id`
-      required and positional — no default, not `Optional`). RRF math
-      verified exact against the documented `1/(60+rank)` formula using
-      synthetic orthogonal vectors, not live embeddings. **Blocked on a live
-      `OPENAI_API_KEY`**: `scripts/prose_measurements.py` (p95 latency,
-      hybrid-vs-`ts_rank_cd` comparison over 20 real entity-scoped queries)
-      is written, dry-verified against all 20 fixtures, and refuses to run
-      against an unembedded database — no number has been fabricated in its
-      place. See `docs/DECISIONS.md`.
+      column, `embedding` filled separately (`embed_pending`, paid,
+      `python -m switchboard_core.prose` — all 6,954 notes embedded),
+      `search_notes`/`rank_candidates` (the RRF query, one SQL statement,
+      `entity_id` required and positional — no default, not `Optional`). RRF
+      math verified exact against the documented `1/(60+rank)` formula with
+      synthetic orthogonal vectors before any real embedding existed.
+      **Measured, not assumed** (`scripts/prose_measurements.py`, 30 scoped
+      searches, 20 real entity-scoped queries): p95 latency is 1,298 ms for
+      the embedding call against 4.7 ms for Postgres — the embedding call is
+      the entire budget, by ~280x, confirming the filler-by-default design
+      already in `docs/ARCHITECTURE.md` for the right reason. Hybrid RRF and
+      `ts_rank_cd` alone agreed on the top result only 4/20 times; 14 of the
+      16 disagreements were `ts_rank_cd` matching **no note at all** against
+      natural caller phrasing. The dense leg stays, now for a measured
+      reason. See `docs/DECISIONS.md`.
 
 ## Phase 3 — Tools
 - [ ] T3.1 Tool contract base: Pydantic in/out, logging decorator with
@@ -149,7 +149,9 @@ Work one at a time. Do not skip ahead. Each task ends with `ruff check` and
       `job_28e341b2…` (job number 3611, where invoice 3611 is Charlene
       Whitaker's). See `docs/HARNESS.md`.
 - [ ] T4.2 Runner asserting tool sequence and argument shape against T4.0.
-      Also settles the dense-vs-lexical question for `search_notes`.
+      Re-runs the dense-vs-lexical comparison against the real golden set as
+      an ongoing regression check — T2.5 already settled the question itself
+      (4/20 agreement on a real stand-in set; see `docs/DECISIONS.md`).
 - [ ] T4.3 `evals/baseline.json` measured from the T3.1 `duration_ms` log, per
       tool class, plus a GitHub Actions workflow that fails on regression.
       Layers 0 and 1 and Layer 4 on every commit; Layer 4 reads the log the

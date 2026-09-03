@@ -100,10 +100,14 @@ belongs to Charlene Whitaker at 74 Oleander Key St.
 
 This runs on every commit. It is a CI failure, not a code-review catch.
 
-Layer 1 also settles the open retrieval question in `docs/ARCHITECTURE.md`:
-whether the dense leg of `search_notes` earns its place at a candidate set of
-3–10 rows, or whether `ts_rank_cd` plus trigram matches it without the
-embedding round trip. Measure it here before building the full T2.5.
+The dense-vs-lexical question `docs/ARCHITECTURE.md` used to flag as open was
+settled in T2.5 itself, ahead of Layer 1 existing: measured against 20 real
+queries, the hybrid top result and `ts_rank_cd` alone agreed only 4 times in
+20, mostly because natural caller phrasing rarely shares exact stemmed
+vocabulary with a tech's notes. Layer 1, once built, re-runs the same
+comparison continuously against the real golden set rather than this task's
+stand-in one - a regression check on a settled answer, not the first
+measurement of it.
 
 ## Layer 2 — Answer grounding
 LLM judge over `{tool_output, spoken_answer}`. Is every claim supported?
