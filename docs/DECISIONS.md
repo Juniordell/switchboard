@@ -15,7 +15,7 @@ Newest last. Dates are when the decision was made, not when it was written down.
 | # | Decision | Why | Lives in |
 |---|---|---|---|
 | 1 | Work on branch `phase-0-specs` rather than `main` | CLAUDE.md forbids committing to main; phase branches are the stated convention and this is the pre-implementation phase | git |
-| 2 | **Override:** canonical address count is **1,360**, not the 1,367 supplied | 1,367 is not reproducible under any normalisation I could construct; 1,360 is what the agreed canonical key actually produces | DATA.md |
+| 2 | ~~**Override:** canonical address count is **1,360**, not the 1,367 supplied~~ **Withdrawn 2026-09-03, see 34.** Both numbers are correct over different denominators | 1,367 is the distinct tuple count over `customers[].addresses`; 1,360 is the canonical count over jobs. The original claim that 1,367 was unreproducible was wrong — it was measured over the wrong table | DATA.md |
 | 3 | **Override:** **30** split address groups, not the 25 supplied, by excluding `city` from the canonical key | The two supplied numbers contradicted each other — 25 requires city in the key; the anonymisation gives zip 33162 seven city names, so city is noise and the 5 extra merges are genuine | DATA.md, ARCHITECTURE.md |
 | 4 | Warranty line-item filter is `ILIKE '%warrant%'`, with 3 named exceptions | The supplied count of 64 only holds case-insensitively; the exact prefix matches 61 and silently loses 3 covered parts | DATA.md |
 | 5 | Working day = **Mon–Sat 08:00–18:00 ET, 120-minute window**, Sunday transfers to a human | Asked to choose a rule; picked by measurement — covers 83% of historical starts vs 77% for Mon–Fri, and 120 min is the arrival window on 1,874 of 1,992 jobs. Sunday's 108 jobs are emergency work, so booking one against an assumed calendar is worse than transferring | SCOPE.md |
@@ -39,3 +39,45 @@ Newest last. Dates are when the decision was made, not when it was written down.
 | 18 | Fixture `job_1da1e743…` chosen from 613 adversarial candidates | It is the only shape where the correct job number and a different customer's invoice number are the same digits (3743), so it also exercises the rule that invoice numbers must be labelled when spoken | HARNESS.md |
 | 19 | Declined to write `packages/core` models and the golden file when asked | Both targets were empty directories with no workspace, ruff or pytest behind them; code that cannot run cannot break CI, which was the point of the request. Recorded as binding spec and scheduled at T1.3a and T4.1 instead | TASKS.md |
 | 20 | This file, and the CLAUDE.md line that keeps it fed | Told to keep the log; putting the obligation in CLAUDE.md is what makes it survive a session boundary, since nothing else carries it forward | DECISIONS.md, CLAUDE.md |
+
+## 2026-09-03 — T1.1 / T1.2 foundation
+
+| # | Decision | Why | Lives in |
+|---|---|---|---|
+| 21 | Both app Dockerfiles take the repository root as build context, not just the agent's | `apps/api` depends on `packages/core` for the same reason the agent does; the constraint was stated for one app and true of both. Proposed and approved before writing | ARCHITECTURE.md, both Dockerfiles |
+| 22 | Each image copies **every** workspace member's manifest into its dependency layer, including ones it does not build | `uv sync --locked` compares the workspace on disk against `uv.lock`; a missing member reads as a stale lock and fails the build pointing at the lock instead of the absent file. Cost me one failed build to learn | both Dockerfiles |
+| 23 | The health test calls the route function directly instead of using FastAPI's `TestClient` | `TestClient` needs `httpx`, which was not among the five dependencies approved. Adding it silently would have broken hard rule 6 to gain an HTTP-level assertion on a placeholder endpoint; the real one arrives at T3.5 | apps/api/tests |
+| 24 | Compose host ports are parameterised, `POSTGRES_PORT` and `API_PORT`, defaulting to 5432 and 8000 | 5432 was held by another project's pgvector **pg16** container. A host-side tool reading the default `DATABASE_URL` would connect to that database — harmless then, silently destructive from T1.4 when the loaders start writing. The collision is gone as of entry 27, but the parameters stay: the next machine is not this one | docker-compose.yml, .env.example |
+| 25 | `livekit-agents` is not pinned yet, and `apps/agent` ships with only `switchboard-core` | Pinning a version against code that does not exist invites a stale pin by T5.1. The package exists now to prove the workspace wiring and the image build, which it does | apps/agent/pyproject.toml |
+| 26 | The core no-framework rule is a test, not a convention | `test_core_imports_no_framework` spawns a fresh interpreter and fails if fastapi, starlette, uvicorn or livekit reach `sys.modules`. Out of process because the api tests import FastAPI into the shared one, where the check would pass or fail on collection order | packages/core/tests |
+
+## 2026-09-03 — Freeing port 5432
+
+| # | Decision | Why | Lives in |
+|---|---|---|---|
+| 27 | Stopped the `decoded` project's stack with `docker stop`, not `docker compose down` | Authorised to bring it down; chose the reversible form. Its redis mounts an **anonymous** volume, and `down` detaches those — the next `up` would have given redis an empty volume and read as data loss with no error. `stop` preserves containers, volumes and their attachments; `docker start` restores it exactly. Volumes `infra_pgdata`, `infra_qdrant_data` and redis's anonymous volume were verified present afterwards | nothing in this repo; recorded here because it touched another project |
+
+## 2026-09-03 — T1.3 source schema
+
+| # | Decision | Why | Lives in |
+|---|---|---|---|
+| 28 | No deduplicated `source.addresses` table; the job carries `address_id`, flattened `address_*` columns **and** `address_raw` JSONB, and `customer_addresses` mirrors the array | The source has no standalone address record — deduplicating 1,390 ids is the T2.1 canonicalisation, which this task forbids. The redundancy is what keeps the 3 jobs that have a real street and no id, and the raw object is the tiebreaker when the normaliser does something surprising to a street. Approved before writing | db/source/jobs.py, db/source/customers.py |
+| 29 | Every source field is modelled, including `invoice_taxes`, which is empty in all 1,700 invoices, and all eight `payments` fields the README says do not exist | A loader that skips an always-empty array keeps skipping it when a later export fills it, and one written from the README would drop payment method, surcharge and paid date. General rule adopted here: the file beats `data/README.md`, and each divergence is documented in DATA.md rather than just fixed in code | db/source/invoices.py, DATA.md |
+| 30 | No `CHECK` on `work_status`, `invoice.status` or `item.type`; the known sets are module constants and the T1.4 loader will WARN on anything outside them, with counts | The DATA.md counts describe this export, they do not define the domain, so a new value should load rather than fail the build. The warning is the condition of that freedom: without it, no constraint means no visibility | db/source/jobs.py, db/source/invoices.py, TASKS.md T1.4 |
+| 31 | Dropped three indexes autogenerate would have kept: `notes.job_id`, `invoice_discounts.invoice_id`, `invoice_taxes.invoice_id` | Each is already the leading column of a composite index or primary key, and Postgres uses a composite from its leading column. A second single-column index costs writes and space for nothing. The join-column test asserts leading-column coverage rather than a literal index per column | db/source/*.py, tests/test_source_models.py |
+
+## 2026-09-03 — T1.4 / T1.5 load and verification
+
+| # | Decision | Why | Lives in |
+|---|---|---|---|
+| 32 | The loaders upsert on the primary key and never delete rows the source no longer has | `ON CONFLICT DO UPDATE` is what makes a second run produce an identical database, verified by md5 over every row of ten tables. Reconciling deletions is code for a case hard rule 1 forbids — `data/` is immutable — and `verify_load.py` would catch it as a count mismatch if it ever happened, so the gap is covered without the machinery | load/upsert.py |
+| 33 | The stale-job boundary is midnight opening 2026-09-02, not end of day | Writing the check surfaced that the original measurement compared ISO strings, where `'2026-09-02T14:00Z' <= '2026-09-02'` is false. End of day reads 48 stale jobs against DATA.md's 38 and would have moved ten live jobs into the stale bucket. Both sides of the split are now asserted, 38 and 38, so the boundary cannot drift unnoticed | verify_load.py, DATA.md |
+| 34 | **Correction to entry 2.** 1,367 is reproducible and correct | It is the distinct `(street, street_line_2, city, state, zip)` count over `customers[].addresses`. The original override was measured over `jobs` and never over the customer address listing, and the "not reproducible under any normalisation" claim was simply wrong. 1,360 remains correct as the canonical count over jobs; the two answer different questions, and DATA.md now names the denominator on each | DATA.md, verify_load.py |
+
+## 2026-09-03 — T1.3a AST guard
+
+| # | Decision | Why | Lives in |
+|---|---|---|---|
+| 35 | Scanned all four source roots (`packages/core/src`, `apps/api/src`, `apps/agent/src`, `scripts/`), not just `packages/core` as HARNESS.md originally said | The wrong join is just as writable from a FastAPI route or a script as from core itself, and neither app existed with real code yet when the guard was specced — narrowing the scan to core would have left the leak open in exactly the layers that call the tools | test_no_job_invoice_number.py, HARNESS.md |
+| 36 | Added a third check, schema shape (`invoice_number` may live on no table but `invoices`), rather than the two originally planned | Alembic migrations write column names as plain strings; scope-based AST allow-listing cannot tell which table a string in a migration belongs to, so migrations had to be exempted from check 1. Schema shape closes exactly that hole, backed by `alembic check`, which is already gated on every task | test_no_job_invoice_number.py |
+| 37 | Verified the guard against a real planted violation (`Invoice.invoice_number == job.invoice_number` in a scratch module) rather than trusting the synthetic AST fixtures alone | A guard that only ever sees fixtures written to satisfy it proves the fixtures are right, not that the guard catches the actual mistake it exists to prevent. Planted the exact join from CLAUDE.md hard rule 8, confirmed the failure names the file, line and rule, then deleted the plant and confirmed the suite is clean | test_no_job_invoice_number.py |

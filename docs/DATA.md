@@ -9,10 +9,28 @@ the `.csv` mirrors. The mirrors are exact (`usd == cents / 100` on every row);
 they are for reading, not for loading. They sit in `data/*.csv`, not in
 `data/csv/` as `data/README.md` claims.
 
-`data/README.md` ships with the dataset and is wrong in two places: it says the
-CSVs are in `csv/`, and it says the calendar runs "through the end of the year"
-when the last scheduled job is 2026-09-15. Where it disagrees with this file,
-this file was measured.
+### `data/README.md` is wrong in three places
+
+It ships with the dataset and is not authoritative. **Where it disagrees with
+the files, the files win**, and the divergence is recorded here as a trap.
+
+| README says | The files say |
+|---|---|
+| CSVs are in `csv/` | They are in `data/*.csv`, flat |
+| The calendar runs "through the end of the year" | The last scheduled job is 2026-09-15 |
+| `taxes`, `discounts`, `payments` are "amounts only" | True of `discounts`. **`payments` carries eight fields**: `id`, `status`, `payment_method`, `amount`, `note`, `paid_at`, `category`, `surcharge_fee_amount` |
+
+The payments one is the trap that costs something. A loader written from the
+README would keep `amount` and silently drop the payment method, the surcharge
+and the paid date — and "how did they pay" is a question a caller asks. All
+eight are loaded; see `source.invoice_payments`.
+
+`invoices[].taxes` is empty across all 1,700 invoices. It is still modelled, on
+the general rule for the source layer: **no field from the `.jsonl` is dropped,
+including fields that are empty in this export.** A loader that skips an
+always-empty array keeps skipping it when a later export fills it. Its column
+shape is inferred from `discounts`, the only other amount-only array, and that
+inference is written down in the model rather than assumed.
 
 ## Measured shape
 
@@ -28,7 +46,7 @@ Every number below was counted from `data/*.jsonl`.
 | Jobs by customer kind | 1,638 homeowner, 354 business |
 | Employees | 23 — 15 field tech, 6 admin, 2 office staff |
 | Address ids | 1,390 distinct, **4 jobs carry `address.id = null`** |
-| Address tuples | 1,370 raw, **1,360 canonical** (see below) |
+| Address tuples | **1,367** distinct in `customer_addresses`; 1,370 raw over jobs; **1,360 canonical** (see below) |
 | Distinct street strings | 1,178 |
 | Scheduled after 2026-09-02 | 42 rows, of which **38 `scheduled`** + 2 `pro canceled` + 2 `user canceled` (last: 2026-09-15) |
 
@@ -104,6 +122,15 @@ The dataset does not have a clean address key.
 
 - 1,390 distinct `address.id` values, and 4 jobs where `address.id` is null
   while the address object itself is present and complete.
+- **1,367** distinct `(street, street_line_2, city, state, zip)` tuples across
+  the 1,390 rows of `customers[].addresses`, untouched — so 23 ids are a
+  duplicate of a tuple another id already carries. This is the figure
+  `scripts/verify_load.py` asserts, because it is a fact about the source
+  rather than about a normalisation choice.
+- The same count over **jobs** is 1,370, not 1,367: jobs include the 4 rows
+  with no address id and one row of empty strings that the customer listing
+  does not. Three different denominators, three different true numbers - name
+  the denominator whenever quoting one.
 - No address id ever carries two different streets. The reverse happens:
   **30 canonical addresses are split across 31 redundant address ids.**
 - `street_line_2` is `null` on 1,171 jobs, the **empty string** on 267, and set
