@@ -5,7 +5,7 @@ The source has no address entity - see
 the key. This module holds the two tables that fix that:
 
 `canonical_addresses`
-    One row per physically distinct address, 1,359 of them. `canonical_id` is
+    One row per physically distinct address, 1,337 of them. `canonical_id` is
     `uuid5(NAMESPACE, normalised key)`, so it is the same value on every load
     without depending on row order.
 
@@ -26,7 +26,7 @@ class CanonicalAddress(Base):
     __table_args__ = (
         # gin_trgm_ops backs both the similarity ranking resolve_address does
         # and the % operator that lets Postgres use the index to pre-filter
-        # candidates instead of computing similarity() against all 1,359 rows.
+        # candidates instead of computing similarity() against all 1,337 rows.
         Index(
             "ix_canonical_addresses_street_trgm",
             "street_normalized",
