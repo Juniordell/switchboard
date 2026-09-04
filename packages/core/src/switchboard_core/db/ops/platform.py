@@ -51,6 +51,12 @@ class Call(Base):
     #: The last agent to hold the call - Triage, Service or Dispatch.
     last_agent: Mapped[str | None] = mapped_column(String)
 
+    #: The call's W3C traceparent. OpenTelemetry context does not survive a
+    #: process boundary or a gap in time, and the async agents cross both -
+    #: this is what lets the extraction and review join the call's trace
+    #: rather than starting their own.
+    traceparent: Mapped[str | None] = mapped_column(String)
+
 
 class ToolCall(Base):
     """Hard rule 5's seven fields, as a row.
@@ -106,7 +112,7 @@ class ReviewItem(Base):
     #: open / approved / rejected. A string rather than an enum for the
     #: same reason the source tables have no CHECK constraints: an unknown
     #: value must stay visible, not be rejected at the boundary.
-    status: Mapped[str] = mapped_column(String, default="open")
+    status: Mapped[str] = mapped_column(String, server_default="open")
 
     title: Mapped[str] = mapped_column(String)
     payload: Mapped[dict[str, Any]] = mapped_column(JSONB)
@@ -150,6 +156,70 @@ class TranscriptTurn(Base):
     #: show the handoff rather than a flat conversation.
     agent: Mapped[str | None] = mapped_column(String)
 
+    created_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+
+
+class AsyncJob(Base):
+    """Work queued for after the caller hangs up.
+
+    A table rather than a broker: Postgres is already here, already
+    announces rows, and adding a queue service to a system whose entire
+    async workload is "one job per phone call" would be infrastructure
+    nobody needs. The worker takes rows with `SELECT ... FOR UPDATE SKIP
+    LOCKED`, so two workers never take the same call.
+
+    `attempts` exists so a job that keeps failing stops rather than
+    spinning: an Extractor that cannot parse one transcript should not
+    consume the queue forever.
+    """
+
+    __tablename__ = "async_jobs"
+    __table_args__ = (
+        Index("ix_async_jobs_status", "status", "created_at"),
+        {"schema": OPS_SCHEMA},
+    )
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    call_id: Mapped[str] = mapped_column(String)
+
+    #: extract / review.
+    kind: Mapped[str] = mapped_column(String)
+
+    #: queued / running / done / failed.
+    #:
+    #: `server_default`, not `default`: a Python-side default is applied by
+    #: the ORM and skipped by raw SQL, and both the queue helper and the
+    #: agent's shutdown insert with raw SQL. The first version of these two
+    #: columns used `default=` and every real call would have failed to
+    #: enqueue on a NOT NULL violation.
+    status: Mapped[str] = mapped_column(String, server_default="queued")
+    attempts: Mapped[int] = mapped_column(server_default="0")
+    error: Mapped[str | None] = mapped_column(String)
+
+    created_at: Mapped[datetime.datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    finished_at: Mapped[datetime.datetime | None] = mapped_column(
+        DateTime(timezone=True)
+    )
+
+
+class Extraction(Base):
+    """What the Extractor made of one finished call.
+
+    Kept whole, as the model returned it, beside the fields the Reviewer
+    scores. A summary that has been reshaped on the way in cannot be
+    audited against what the model actually said.
+    """
+
+    __tablename__ = "extractions"
+    __table_args__ = {"schema": OPS_SCHEMA}
+
+    call_id: Mapped[str] = mapped_column(String, primary_key=True)
+    facts: Mapped[dict[str, Any]] = mapped_column(JSONB)
+    model: Mapped[str] = mapped_column(String)
     created_at: Mapped[datetime.datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )
