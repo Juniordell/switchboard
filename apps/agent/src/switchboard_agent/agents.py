@@ -308,6 +308,10 @@ properly and lets the caller change their mind partway through.
 
 Slots come from find_availability and are proposals against an assumed
 working day, Monday to Saturday, 08:00 to 18:00. Say so when you offer one.
+
+Offer **two** times, not a list. This is a phone call: a caller cannot
+hold more than that, and reading a roster aloud took 26 seconds on a real
+call. Say two, ask which suits, and offer two more only if neither does.
 Sunday and after-hours are not yours to book: transfer instead.
 """,
         )

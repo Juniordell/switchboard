@@ -43,7 +43,15 @@ BOOKABLE_WEEKDAYS = frozenset({0, 1, 2, 3, 4, 5})
 
 FIELD_TECH_ROLE = "field tech"
 
-DEFAULT_LIMIT = 10
+#: Three, because these are read aloud.
+#:
+#: The tool's whole premise is that "a caller is offered times, not a
+#: roster", and ten rows contradicted it: on a real call the agent read
+#: the list out for 26.6 seconds - the single longest thing that happened
+#: on that call, longer than every LLM call in it put together. A caller
+#: cannot hold ten options in their head anyway. Callers who want more
+#: ask, and the model can raise `limit` when they do.
+DEFAULT_LIMIT = 3
 
 
 class AvailabilitySlot(BaseModel):
