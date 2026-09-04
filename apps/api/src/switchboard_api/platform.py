@@ -169,6 +169,53 @@ def list_jobs(session: SessionDep, limit: LimitQuery = DEFAULT_LIMIT) -> Page:
     )
 
 
+@router.get("/stale")
+def list_stale(session: SessionDep, limit: LimitQuery = MAX_LIMIT) -> Page:
+    """Scheduled jobs whose start has already passed.
+
+    `docs/SCOPE.md`: a `scheduled` job dated in the past is abandoned work,
+    not upcoming work. It is excluded from the today view, from availability
+    occupancy, and is never spoken as an appointment - and the rule says it
+    "appears only in an explicit stale bucket on the operations dashboard,
+    because 38 forgotten jobs is exactly the kind of thing the owner would
+    want surfaced". This is that bucket.
+
+    `in progress` is deliberately not included: a job somebody started is a
+    different problem from one nobody drove to, and lumping them would hide
+    both. Cancelled and complete are not stale by definition.
+    """
+    return _page(
+        session,
+        """
+        SELECT j.id AS job_id, j.job_number, j.customer_id,
+               """
+        + CUSTOMER_NAME.format(id_column="j.customer_id")
+        + """ AS customer,
+               COALESCE(r.scheduled_start, j.scheduled_start) AS scheduled_start,
+               j.work_status, j.description,
+               """
+        + STREET.format(j="j")
+        + """ AS display_address,
+               (CURRENT_DATE - COALESCE(r.scheduled_start,
+                                        j.scheduled_start)::date) AS days_stale,
+               (SELECT array_agg(e.first_name || ' ' || e.last_name
+                                 ORDER BY je.position)
+                  FROM source.job_employees je
+                  JOIN source.employees e ON e.id = je.employee_id
+                 WHERE je.job_id = j.id) AS techs,
+               false AS agent_booked, (r.job_id IS NOT NULL) AS rescheduled
+        FROM source.jobs j
+        LEFT JOIN ops.job_reschedules r ON r.job_id = j.id
+        LEFT JOIN source.customers cu ON cu.id = j.customer_id
+        WHERE j.work_status = 'scheduled'
+          AND COALESCE(r.scheduled_start, j.scheduled_start) < CURRENT_DATE
+        ORDER BY scheduled_start
+        LIMIT :limit
+        """,
+        limit=limit,
+    )
+
+
 @router.get("/review_queue")
 def list_review_queue(
     session: SessionDep,

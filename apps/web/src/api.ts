@@ -22,6 +22,8 @@ export type Job = {
   techs?: string[] | null;
   agent_booked: boolean;
   rescheduled?: boolean;
+  /** Only on /stale: whole days since the start that was missed. */
+  days_stale?: number;
 };
 
 export type Call = {
@@ -105,6 +107,7 @@ export const api = {
   job: (id: string) => get<JobDetail>(`/jobs/${encodeURIComponent(id)}`),
   jobs: () => get<Page<Job>>("/jobs"),
   reviewQueue: () => get<Page<ReviewItem>>("/review_queue"),
+  stale: () => get<Page<Job>>("/stale"),
 };
 
 /** Money is cents everywhere below the presentation layer. */

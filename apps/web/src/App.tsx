@@ -18,6 +18,7 @@ import { Calls } from "./screens/Calls";
 import { JobDetail } from "./screens/JobDetail";
 import { Jobs } from "./screens/Jobs";
 import { ReviewQueue } from "./screens/ReviewQueue";
+import { Stale } from "./screens/Stale";
 import { Today } from "./screens/Today";
 
 function Icon({ children }: { children: ReactNode }) {
@@ -56,6 +57,12 @@ const ICONS = {
       <path d="M14 2v6h6M9 13h6M9 17h4" />
     </Icon>
   ),
+  clock: (
+    <Icon>
+      <circle cx="12" cy="12" r="9" />
+      <path d="M12 7v5l3 2" />
+    </Icon>
+  ),
   inbox: (
     <Icon>
       <path d="M22 12h-6l-2 3h-4l-2-3H2" />
@@ -68,6 +75,7 @@ const TABS = [
   { to: "/", label: "Today", icon: ICONS.calendar },
   { to: "/calls", label: "Calls", icon: ICONS.list },
   { to: "/jobs", label: "Jobs", icon: ICONS.file },
+  { to: "/stale", label: "Stale", icon: ICONS.clock },
   { to: "/review", label: "Review", icon: ICONS.inbox },
 ] as const;
 
@@ -75,13 +83,15 @@ function isActive(to: string, pathname: string): boolean {
   return to === "/" ? pathname === "/" : pathname.startsWith(to);
 }
 
-/** The rail's badge: how many items the Reviewer has left for a human. */
-function useOpenReviews(): number | null {
-  const { data } = useQuery({
-    queryKey: ["review_queue"],
-    queryFn: api.reviewQueue,
-  });
-  return data ? data.count : null;
+/** The rail badges: what each queue is holding. Both share their screen's
+ * cache key, so neither costs an extra request. */
+function useBadges(): Record<string, number | null> {
+  const reviews = useQuery({ queryKey: ["review_queue"], queryFn: api.reviewQueue });
+  const stale = useQuery({ queryKey: ["stale"], queryFn: api.stale });
+  return {
+    Review: reviews.data ? reviews.data.count : null,
+    Stale: stale.data ? stale.data.count : null,
+  };
 }
 
 type Feed = { events: number; last: string | null; connected: boolean };
@@ -89,10 +99,10 @@ type Feed = { events: number; last: string | null; connected: boolean };
 /** Which query keys each NOTIFY channel can have changed. */
 const KEYS_FOR: Record<string, string[]> = {
   switchboard_tool_calls: ["calls", "call"],
-  switchboard_writes: ["jobs", "job", "today"],
+  switchboard_writes: ["jobs", "job", "today", "stale"],
   switchboard_async_jobs: ["review_queue"],
 };
-const ALL_KEYS = ["calls", "call", "jobs", "job", "today", "review_queue"];
+const ALL_KEYS = ["calls", "call", "jobs", "job", "today", "stale", "review_queue"];
 
 /**
  * One EventSource for the whole shell.
@@ -166,11 +176,10 @@ function LiveFeed({ events, last, connected }: Feed) {
 
 export function App() {
   const { pathname } = useLocation();
-  const openReviews = useOpenReviews();
+  const badges = useBadges();
   const feed = useLiveFeed();
 
-  const badge = (label: string) =>
-    label === "Review" && openReviews ? openReviews : null;
+  const badge = (label: string) => badges[label] || null;
 
   return (
     <div className="flex h-dvh overflow-hidden">
@@ -247,6 +256,7 @@ export function App() {
             <Route path="/calls/:callId" element={<CallDetail />} />
             <Route path="/jobs" element={<Jobs />} />
             <Route path="/jobs/:jobId" element={<JobDetail />} />
+            <Route path="/stale" element={<Stale />} />
             <Route path="/review" element={<ReviewQueue />} />
           </Routes>
         </main>
