@@ -318,3 +318,42 @@ failing on purpose.
 | 157 | **Correction to a published measurement.** `statistics.quantiles` defaults to a method that extrapolates past the observed range | Caught because Layer 4 reported a p95 *above* the max, which is impossible for a measured percentile. `scripts/prose_measurements.py` carried the same default, so T2.5's published latency figures are overstated by up to ~10%. Conservative is the safe direction for a budget, and the numbers in `docs/ARCHITECTURE.md` are left standing rather than silently rewritten - but the method is fixed and the overstatement is now on the record | evals/layer4.py, scripts/prose_measurements.py |
 | 158 | Hosted CI runs lint, format and Layer 0 only; every data-dependent layer is gated and announced as NOT RUN | Found by running the workflow for real, twice. `CLAUDE.md` hard rule 1 forbids committing `data/`, so a hosted runner has no dataset - which is a constraint, not a bug, and the two dishonest ways out were committing the data or generating a synthetic one that would make `verify_load`'s exact counts meaningless. `docs/HARNESS.md` claimed the full gate runs on every commit; that claim is now scoped to a runner that has the dataset, and a green hosted run is explicitly not the same claim as a green local gate | .github/workflows/harness.yml, HARNESS.md |
 | 159 | The CI creates the Postgres extensions from the same SQL file compose uses | The first real run failed on `gin_trgm_ops does not exist`: a service container cannot mount `infra/postgres/initdb`, so it starts without `vector` or `pg_trgm`. Running the file rather than restating the statements means the two paths cannot drift, and the step prints `pg_extension` afterwards so the log says what is actually installed | .github/workflows/harness.yml |
+
+## T8.4 - what five real calls changed
+
+- Spoken house numbers **concatenate by group**, they do not sum. One
+  accumulator over the whole run turned "thirteen sixty three" into 76 and
+  sent a caller another property's visit history. `_number_groups` splits
+  the run; a tens word absorbs a following unit ("eighty nine" is still
+  89), hundred/thousand constructions stay whole.
+  Lives in `knowledge/address_normalize.py`.
+- **Id prefixes are types**, not a convention. A call handed a `cus_` id to
+  a `canonical_id` slot; the lookup found nothing and the caller was told
+  there was no history. A wrong answer wearing an empty answer's clothes is
+  the worst shape available here, so `CanonicalId`/`CustomerId`/`JobId`
+  reject the wrong kind at request construction. Lives in `tools/ids.py`.
+  Same reasoning as T5.2's write boundary: structure, not prompt.
+- **`WarrantyCoverage.WAS_COVERED`** - override of the three-state enum
+  agreed in T2.3. Level 2 returned `YES` with a `basis` that spelled out
+  the coverage was historical, and the agent said "it's under warranty",
+  present tense, from a 2023 invoice. The prose was correct and lost to the
+  structured field beside it. `docs/AGENTS.md`'s sentence about level 2 is
+  a value now. Lives in `knowledge/warranty_status.py`.
+- **Triage resolves before it refuses.** Asked "what do I owe you guys",
+  Triage answered "I can't provide balance information" and never called
+  resolve_customer - it read its own missing tools as the company's missing
+  capability. Measured 0/5 resolving; 5/5 after the instruction separated
+  the two. Lives in `agents.py`.
+- **must_ask means ask, not transfer.** Found while rate-measuring the
+  ambiguous-address case: 1 in 5 runs escalated to a human rather than
+  asking which of two addresses. Handing a person a question the caller
+  could answer in one breath is worse service than asking it.
+- Misrouted arguments (an address in the name slot, a house number in the
+  equipment slot) get **no validator**. "Is this a person's name" is not a
+  rule anyone can write honestly. Measured, both already fail safe - 0.167
+  with must_ask, and level 6 unknown - so `evals/test_captured_calls.py`
+  pins that direction against future threshold tuning instead.
+- The two judged assertions in `test_conversations.py` **were never
+  running**: `judge` is a coroutine and was called without `await`, so both
+  passed green having checked nothing. Awaited now, and verified by
+  planting an intent the agent cannot satisfy and watching it fail.
