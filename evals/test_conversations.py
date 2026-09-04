@@ -10,9 +10,14 @@ Two kinds of assertion, deliberately not mixed:
   called, with what arguments. These are facts about the run and need no
   judge, so they cannot be flaky and cannot be argued with. Every handoff
   assertion in T8.2 is one of these.
-- **Judged** (`.judge(llm, intent=...)`): did the agent *ask* rather than
-  guess, did it refuse rather than invent. These are about wording, which
-  only a reader can score.
+- **Judged** (`await .judge(llm, intent=...)`): did the agent *ask* rather
+  than guess, did it refuse rather than invent. These are about wording,
+  which only a reader can score.
+
+  **The `await` is load-bearing.** `judge` is a coroutine; called without
+  it, the assertion is never run and the test passes green having checked
+  nothing. Both judged cases here spent T8.1 in exactly that state, and
+  only a `RuntimeWarning` in the output gave it away.
 
 Opt in with `HARNESS_LIVE=1`. Every scenario is real model calls, and the
 suite runs on every commit.
@@ -212,7 +217,7 @@ class TestItAsksRatherThanGuesses:
         )
         with pytest.raises(AssertionError):
             result.expect.contains_function_call(name="get_schedule")
-        result.expect.next_event(type="message").judge(
+        await result.expect.next_event(type="message").judge(
             judge,
             intent=(
                 "Asks the caller for their address or name. Does not claim to "
@@ -220,18 +225,43 @@ class TestItAsksRatherThanGuesses:
             ),
         )
 
-    async def test_an_ambiguous_address_is_asked_about(self, session, judge) -> None:
+    async def test_an_ambiguous_address_is_asked_about(
+        self, fresh_session, judge
+    ) -> None:
         """Two canonical addresses tie at 0.565 on "old mangrove". The tool
-        returns must_ask; the turn has to end in a question."""
-        result = await session.run(user_input="I'm on old mangrove")
-        result.expect.contains_function_call(name="resolve_address")
-        result.expect.next_event(type="message").judge(
-            judge,
-            intent=(
-                "Asks which of several similar addresses the caller means, "
-                "rather than picking one."
-            ),
-        )
+        returns must_ask; the turn has to end in a question.
+
+        Measured as a rate, like every other sampled decision here. It was
+        a single-shot assertion until it failed once in five: the agent had
+        called transfer_to_human rather than asking which address, which is
+        a defensible instinct and bad service - the caller can answer that
+        question in one breath. The instruction now says so; this measures
+        whether it took.
+        """
+
+        async def scenario() -> bool:
+            async with fresh_session() as session:
+                result = await session.run(user_input="I'm on old mangrove")
+                result.expect.contains_function_call(name="resolve_address")
+                if any(
+                    type(e).__name__ == "FunctionCallEvent"
+                    and e.item.name == "transfer_to_human"
+                    for e in result.events
+                ):
+                    return False
+                try:
+                    await result.expect.next_event(type="message").judge(
+                        judge,
+                        intent=(
+                            "Asks which of several similar addresses the caller "
+                            "means, rather than picking one."
+                        ),
+                    )
+                except AssertionError:
+                    return False
+                return True
+
+        assert await rate(scenario) >= MUST_HOLD / ATTEMPTS
 
 
 class TestItDoesNotWriteWithoutBeingTold:
