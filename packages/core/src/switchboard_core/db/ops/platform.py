@@ -51,6 +51,12 @@ class Call(Base):
     #: The last agent to hold the call - Triage, Service or Dispatch.
     last_agent: Mapped[str | None] = mapped_column(String)
 
+    #: The call's W3C traceparent. OpenTelemetry context does not survive a
+    #: process boundary or a gap in time, and the async agents cross both -
+    #: this is what lets the extraction and review join the call's trace
+    #: rather than starting their own.
+    traceparent: Mapped[str | None] = mapped_column(String)
+
 
 class ToolCall(Base):
     """Hard rule 5's seven fields, as a row.
