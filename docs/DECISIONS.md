@@ -399,3 +399,41 @@ failing on purpose.
   would be a guess about hard rule 4), and no mutation endpoint. Buttons that
   do nothing are worse than no buttons - the same rule as T6.3's "nothing
   dressed up as a feature".
+
+## 2026-09-04 — production calls, and what they changed
+
+- **Handoffs carry `chat_ctx.copy(exclude_instructions=True)`.** Service and
+  Dispatch were built with no history and asked "what can I help you with?"
+  to a caller who had just said; two of three real handoffs did it. The
+  conversation goes with the call, the previous agent's prompt does not.
+  Lives in `agents.py`.
+- **`transfer_to_human` is gated in the tool bridge while a resolve is
+  `must_ask` and unanswered.** Two real calls transferred instead of asking
+  "which one", after the prompt already said not to. Prompt was advice;
+  this refuses with a reason the model can act on. Cleared by a handoff or
+  by any other tool succeeding. Lives in `tool_bridge.py`.
+- **Core tools run in a thread, under `RunContext.with_filler` (1.2 s).**
+  `call_core_tool` was synchronous database I/O on the event loop. The
+  filler never enters the chat context, so the LLM cannot repeat it.
+  Measured before: median 7.0 s from caller to agent on six real calls.
+- **`preemptive_tts` on; `numerals` off.** `numerals` rewrote every spoken
+  "one" as a digit ("1 of the tax"); `smart_format` alone shapes the numbers
+  that are addresses. Both in `main.py`.
+- **Eighteen street names are STT keyterms**, measured as the most frequent
+  in `canonical_addresses` without suffix. "Old Mangrove" was transcribed
+  "Old Monroe" three times. 32 terms total.
+- **The tracer provider is flushed before the job process exits.** Langfuse
+  had every extract/review trace and not one call: spans were batched and
+  the process died first. T7.4's "one trace" was not true in production
+  until this.
+- **Authentication stays out of scope, with the design measured** — see the
+  security analysis: an address alone reaches avg 5.4 notes (max 53), 1,114
+  notes carry access-code structure, 436 jobs carry $655k owed. Proposed
+  tiers on the tool contract in the spirit of `MAY_WRITE`, and `search_notes`
+  redaction at the tool boundary. Not built the day before delivery.
+- **Three calls that predate the shutdown fix had `ended_at` backfilled**
+  from their last transcript turn. They would have read "in progress"
+  forever on the dashboard.
+- **Dashboard**: stats are 22px tiles (they were 11px, same as column
+  headers); Jobs drops the "Source" column that said "loaded" on every row;
+  a level 4-6 warranty is one line. From screenshots, not from the code.
