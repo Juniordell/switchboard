@@ -11,6 +11,10 @@ import os
 from typing import Any
 
 import httpx
+from opentelemetry import trace
+from opentelemetry.semconv._incubating.attributes import gen_ai_attributes as gen_ai
+
+from switchboard_core.telemetry import record_usage
 
 CHAT_URL = "https://api.openai.com/v1/chat/completions"
 DEFAULT_MODEL = os.environ.get("ASYNC_AGENT_MODEL", "gpt-4o-mini")
@@ -64,7 +68,12 @@ def ask_for_json(
             f"model returned {response.status_code}: {response.text[:200]}"
         )
 
-    content = response.json()["choices"][0]["message"]["content"]
+    body = response.json()
+    span = trace.get_current_span()
+    record_usage(span, body.get("usage"))
+    span.set_attribute(gen_ai.GEN_AI_RESPONSE_MODEL, body.get("model", model))
+
+    content = body["choices"][0]["message"]["content"]
     try:
         return json.loads(content)
     except ValueError as exc:

@@ -18,12 +18,14 @@ import signal
 import sys
 
 import psycopg
+from sqlalchemy import text
 
 from switchboard_api.async_agents.extractor import extract
 from switchboard_api.async_agents.model import ModelUnavailableError
 from switchboard_api.async_agents.queue import claim, finish
 from switchboard_api.async_agents.reviewer import review
 from switchboard_core.db.session import create_db_engine, database_url, session_factory
+from switchboard_core.telemetry import continue_trace, genai_span, tracer_provider
 
 CHANNEL = "switchboard_async_jobs"
 POLL_SECONDS = float(os.environ.get("WORKER_POLL_SECONDS", "5"))
@@ -43,9 +45,29 @@ def run_one(sessions) -> bool:
             return False
 
         call_id = job["call_id"]
+        # Re-enter the trace the call recorded. These spans then hang off
+        # the call span even though the call ended minutes ago and in
+        # another process - which is what "one trace" has to mean here.
+        traceparent = session.execute(
+            text("SELECT traceparent FROM ops.calls WHERE call_id = :c"),
+            {"c": call_id},
+        ).scalar_one_or_none()
+
         try:
-            facts = extract(session, call_id)
-            verdict = review(session, call_id, facts)
+            with continue_trace(traceparent):
+                with genai_span("extract", operation="invoke_agent", call_id=call_id):
+                    facts = extract(session, call_id)
+                with genai_span(
+                    "review", operation="invoke_agent", call_id=call_id
+                ) as span:
+                    verdict = review(session, call_id, facts)
+                    span.set_attribute(
+                        "switchboard.review.confidence",
+                        float(verdict.get("confidence", 0)),
+                    )
+                    span.set_attribute(
+                        "switchboard.review.queued", bool(verdict.get("queued"))
+                    )
             finish(session, job["id"])
             logger.info(
                 "reviewed %s: confidence %.2f, queued=%s",
@@ -66,6 +88,7 @@ def main() -> int:
     logging.basicConfig(
         level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s"
     )
+    tracer_provider()
     engine = create_db_engine()
     sessions = session_factory(engine)
 

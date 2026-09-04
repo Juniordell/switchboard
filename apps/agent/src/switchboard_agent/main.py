@@ -38,6 +38,7 @@ from livekit.agents import (
     cli,
     inference,
 )
+from livekit.agents import telemetry as lk_telemetry
 from livekit.agents.voice.room_io import RoomOptions
 from sqlalchemy import text
 
@@ -45,6 +46,11 @@ from switchboard_agent.agents import TriageAgent
 from switchboard_agent.transcript import capture_transcript
 from switchboard_core.db.session import create_db_engine, session_factory
 from switchboard_core.observability import record_tool_calls
+from switchboard_core.telemetry import (
+    current_traceparent,
+    genai_span,
+    tracer_provider,
+)
 
 logger = logging.getLogger("switchboard_agent")
 
@@ -86,7 +92,7 @@ ENDPOINTING_MAX_DELAY = 4.0
 server = AgentServer()
 
 
-def _open_call(call_id: str, caller: str | None) -> None:
+def _open_call(call_id: str, caller: str | None, traceparent: str | None) -> None:
     """Record the call, so the dashboard has something to group by.
 
     Best effort. A database the agent cannot reach is a reason to answer
@@ -97,13 +103,15 @@ def _open_call(call_id: str, caller: str | None) -> None:
         with sessions() as session, session.begin():
             session.execute(
                 text(
-                    "INSERT INTO ops.calls (call_id, caller, started_at) "
-                    "VALUES (:c, :caller, :now) ON CONFLICT (call_id) DO NOTHING"
+                    "INSERT INTO ops.calls (call_id, caller, started_at, traceparent) "
+                    "VALUES (:c, :caller, :now, :tp) "
+                    "ON CONFLICT (call_id) DO NOTHING"
                 ),
                 {
                     "c": call_id,
                     "caller": caller,
                     "now": datetime.datetime.now(datetime.UTC),
+                    "tp": traceparent,
                 },
             )
 
@@ -145,8 +153,26 @@ async def entrypoint(ctx: JobContext) -> None:
     # installed here rather than in the contract so the test suite does not
     # write rows it never asked for.
     record_tool_calls()
-    _open_call(call_id, _caller_from(call_id))
-    ctx.add_shutdown_callback(lambda: _close_call(call_id))
+
+    # LiveKit instruments its own pipeline; giving it our provider puts the
+    # STT, LLM and TTS spans in the same trace as everything below rather
+    # than in one of its own.
+    provider = tracer_provider()
+    lk_telemetry.set_tracer_provider(provider, metadata={"call_id": call_id})
+
+    with genai_span(
+        "call",
+        operation="invoke_agent",
+        model=LLM_MODEL,
+        call_id=call_id,
+        attributes={"switchboard.caller": _caller_from(call_id) or "unknown"},
+    ):
+        _open_call(call_id, _caller_from(call_id), current_traceparent())
+        ctx.add_shutdown_callback(lambda: _close_call(call_id))
+        await _run_call(ctx, call_id)
+
+
+async def _run_call(ctx: JobContext, call_id: str) -> None:
 
     session = AgentSession(
         stt=inference.STT(model=STT_MODEL, language="en"),
