@@ -7,15 +7,17 @@
 
 Two modes, because two different things are being proven.
 
-**Selection (38 cases).** Send the utterance, grade the tool calls that come
+**Selection (40 cases).** Send the utterance, grade the tool calls that come
 back. Nothing is executed - a golden case can assert on a `book_job`
 selection without booking anything.
 
-**Provenance (2 cases).** These run the real path and inspect the rows.
-Asserting only the sequence would miss the failure that matters: the right
-tool returning the wrong number. Those two live in
-`evals/test_number_provenance.py` as ordinary tests, because they need no
-model, cost nothing, and must break CI on every commit.
+**Executed elsewhere (5 cases).** These run the real path and inspect what
+came back, because asserting only the sequence would miss the failure that
+matters: the right tool returning the wrong number, the wrong tense, or a
+confident empty answer built from an id of the wrong kind. They are graded
+by the pytest files named in `EXECUTED_ELSEWHERE` - which need no model,
+cost nothing, and must break CI on every commit. This runner reports them
+as deferred rather than silently dropping them.
 
 What Layer 1 can and cannot grade
 ---------------------------------
@@ -55,8 +57,14 @@ HERE = pathlib.Path(__file__).parent
 GOLDEN = HERE / "golden" / "tools.yaml"
 BASELINE = HERE / "baseline.json"
 
-#: Graded elsewhere, by tests that need no model. See the module docstring.
-EXECUTED_ELSEWHERE = "number_provenance"
+#: Cases whose real grading is execution, not selection. The marker names
+#: the pytest file that grades them: those tests need no model, cost
+#: nothing, and run on every commit, which is a stronger gate than a
+#: model-driven selection check. See the module docstring.
+EXECUTED_ELSEWHERE = {
+    "number_provenance": "evals/test_number_provenance.py",
+    "captured_call": "evals/test_captured_calls.py",
+}
 
 #: `docs/HARNESS.md`: judged metrics are stochastic and get a band. Layer 1
 #: has no judge and runs at temperature 0, so this is slack it should never
@@ -115,18 +123,20 @@ def grade(case: dict, chosen: list[str]) -> Result:
     )
 
 
-def run(cases: list[dict]) -> tuple[list[Result], list[str]]:
-    results, deferred = [], []
+def run(cases: list[dict]) -> tuple[list[Result], dict[str, list[str]]]:
+    results: list[Result] = []
+    deferred: dict[str, list[str]] = {}
     for case in cases:
-        if case.get("asserts") == EXECUTED_ELSEWHERE:
-            deferred.append(case["id"])
+        marker = case.get("asserts")
+        if marker in EXECUTED_ELSEWHERE:
+            deferred.setdefault(marker, []).append(case["id"])
             continue
         chosen = [call.name for call in choose_tools(case["utterance"])]
         results.append(grade(case, chosen))
     return results, deferred
 
 
-def report(results: list[Result], deferred: list[str]) -> dict:
+def report(results: list[Result], deferred: dict[str, list[str]]) -> dict:
     width = max(len(r.case_id) for r in results)
     for result in results:
         if result.intentional_red and not result.passed:
@@ -152,11 +162,10 @@ def report(results: list[Result], deferred: list[str]) -> dict:
             f"  RED*  {red.case_id}: intentional, owned by {red.intentional_red} "
             f"- {state}"
         )
-    if deferred:
+    for marker, ids in sorted(deferred.items()):
         print(
-            f"  {len(deferred)} provenance cases graded by "
-            f"evals/test_number_provenance.py on every commit: "
-            f"{', '.join(deferred)}"
+            f"  {len(ids)} {marker} cases graded by {EXECUTED_ELSEWHERE[marker]} "
+            f"on every commit: {', '.join(sorted(ids))}"
         )
     return {
         "pass_rate": round(rate, 4),
@@ -164,7 +173,7 @@ def report(results: list[Result], deferred: list[str]) -> dict:
         "graded": len(graded),
         "failed": sorted(r.case_id for r in graded if not r.passed),
         "intentional_red": {r.case_id: r.intentional_red for r in reds},
-        "provenance_cases": sorted(deferred),
+        "deferred_cases": {m: sorted(ids) for m, ids in sorted(deferred.items())},
     }
 
 

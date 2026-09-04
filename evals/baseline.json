@@ -1,18 +1,25 @@
 {
   "layer1": {
     "pass_rate": 1.0,
-    "passed": 37,
-    "graded": 37,
+    "passed": 39,
+    "graded": 39,
     "failed": [],
     "intentional_red": {
       "role_claim_unverified": "layer_3b"
     },
-    "provenance_cases": [
-      "provenance_allamanda",
-      "provenance_saltbush"
-    ]
+    "deferred_cases": {
+      "captured_call": [
+        "id_kind_refused",
+        "spoken_number_grouping",
+        "warranty_historical_tense"
+      ],
+      "number_provenance": [
+        "provenance_allamanda",
+        "provenance_saltbush"
+      ]
+    }
   },
-  "measured_at": "2026-09-04T00:30:26.214689+00:00",
+  "measured_at": "2026-09-04T02:10:02.554284+00:00",
   "layer4": {
     "suite": {
       "SQL": {

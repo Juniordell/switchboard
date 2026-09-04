@@ -17,6 +17,7 @@ import datetime
 
 import pytest
 from pydantic import ValidationError
+from sqlalchemy import text
 
 from switchboard_core.knowledge.address_normalize import normalize_street
 from switchboard_core.knowledge.resolve_address import resolve_address
@@ -36,8 +37,10 @@ AS_OF = datetime.datetime(2026, 9, 3, tzinfo=datetime.UTC)
 
 
 class TestSpokenHouseNumbersConcatenate:
-    """Call 1. The caller said "thirteen sixty three West Old Mangrove".
-    The normaliser folded the whole run with one accumulator and returned
+    """Golden case `spoken_number_grouping`. Call 1.
+
+    The caller said "thirteen sixty three West Old Mangrove". The
+    normaliser folded the whole run with one accumulator and returned
     **76** (13 + 63), so resolve_address offered three addresses on a
     different part of the street - 2441, 3092, 2421 - and the caller,
     reasonably, picked one. They were then read another property's visit
@@ -81,17 +84,33 @@ class TestSpokenHouseNumbersConcatenate:
 
 
 class TestAnIdOfTheWrongKindIsRefused:
-    """Call 4. The agent called handoff_to_service with a **customer** id
-    in the canonical_id slot. Nothing objected: the lookup found nothing
-    and the caller was told there was no history.
+    """Golden case `id_kind_refused`. Call 4.
+
+    The agent called handoff_to_service with a **customer** id in the
+    canonical_id slot. Nothing objected: the lookup found nothing and the
+    caller was told there was no history.
 
     A wrong answer that looks like an empty one is the worst shape a bug
     can take here, so the prefixes are a type now.
     """
 
+    #: A real customer - Tidewater Hospitality, 45 jobs - which is what
+    #: made the original failure quiet: the id was valid, just not this
+    #: kind of id.
+    REAL_CUSTOMER_ID = "cus_0f7b6320d618477a973d44675b1a28a2"
+
     def test_a_customer_id_is_not_a_canonical_id(self) -> None:
         with pytest.raises(ValidationError, match="not a canonical id"):
-            VisitHistoryRequest(canonical_id="cus_0f7b6320d618477a973d44675b1a28a2")
+            VisitHistoryRequest(canonical_id=self.REAL_CUSTOMER_ID)
+
+    def test_the_misused_id_really_is_a_customer(self, db_session) -> None:
+        """If this id ever stops being real, the case above stops being the
+        bug it was captured from."""
+        found = db_session.execute(
+            text("SELECT company FROM source.customers WHERE id = :i"),
+            {"i": self.REAL_CUSTOMER_ID},
+        ).scalar_one()
+        assert found == "Tidewater Hospitality"
 
     def test_a_canonical_id_is_not_a_customer_id(self) -> None:
         with pytest.raises(ValidationError, match="not a customer id"):
@@ -108,10 +127,11 @@ class TestAnIdOfTheWrongKindIsRefused:
 
 
 class TestAHistoricalWarrantyIsNotAPresentOne:
-    """Call 2. The caller asked whether a TXV was under warranty, and the
-    agent said "Yes, the TXV is under warranty based on invoice 5275, which
-    indicates it's manufacturer-covered" - present tense, from a 2023
-    invoice.
+    """Golden case `warranty_historical_tense`. Call 2.
+
+    The caller asked whether a TXV was under warranty, and the agent said
+    "Yes, the TXV is under warranty based on invoice 5275, which indicates
+    it's manufacturer-covered" - present tense, from a 2023 invoice.
 
     `docs/AGENTS.md`: "Level 2 is stated as historical: the part *was*
     covered on that visit, which is not the same as covered today." The
@@ -120,8 +140,9 @@ class TestAHistoricalWarrantyIsNotAPresentOne:
     field. So the field carries the tense now.
     """
 
-    #: 4120 Bowline Isle Rd - a WARRANTY invoice item, no note, no install
-    #: date, no tag. Level 2 and nothing else.
+    #: 416 S Coral Ridge Pkwy (Lighthouse Warehouse). Invoice 4285 billed
+    #: "WARRANTY Parts / Service - WARRANTY - Compressor"; no note, no
+    #: install date, no tag. Level 2 and nothing else.
     CANONICAL_ID = "cadr_9323a56f80f958658708adf768c65dd3"
 
     def test_level_2_is_not_a_present_tense_yes(self, db_session) -> None:
@@ -148,7 +169,10 @@ class TestAHistoricalWarrantyIsNotAPresentOne:
 
 
 class TestGarbageInAnArgumentSlotFailsSafe:
-    """Call 3. The agent put an address in the customer-name slot -
+    """Golden case `address_not_a_customer_name` grades the selection half
+    of this at Layer 1; what follows is the half that matters. Call 3.
+
+    The agent put an address in the customer-name slot -
     `resolve_customer(name="Bowline Isle Rd")` - and a house number in the
     equipment slot - `get_warranty_status(equipment="eighty")`.
 
