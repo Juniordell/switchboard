@@ -44,3 +44,6 @@ testpaths = [
     "evals",
 ]
 addopts = "-q --strict-markers --strict-config"
+# anyio ships its own pytest plugin and is already installed; this
+# registers the marker so --strict-markers accepts it.
+markers = ["anyio: run this async test on the anyio backend"]

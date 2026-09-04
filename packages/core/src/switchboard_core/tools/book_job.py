@@ -18,16 +18,17 @@ from sqlalchemy.orm import Session
 from switchboard_core.db.ops.bookings import BookedJob
 from switchboard_core.knowledge.availability import SLOT_MINUTES
 from switchboard_core.tools.contract import ToolResult, tool_call
+from switchboard_core.tools.ids import CanonicalId, CustomerId
 from switchboard_core.tools.writes import derived_id, idempotency_key, record_write
 
 
 class BookJobRequest(BaseModel):
-    customer_id: str
+    customer_id: CustomerId
     scheduled_start: datetime.datetime
     description: str
     display_address: str
 
-    canonical_id: str | None = None
+    canonical_id: CanonicalId | None = None
     arrival_window: int = SLOT_MINUTES
     tech_id: str | None = None
     tech_name: str | None = None

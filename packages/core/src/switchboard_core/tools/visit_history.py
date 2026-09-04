@@ -16,10 +16,11 @@ from switchboard_core.knowledge.visit_history import (
     get_visit_history as _get_visit_history,
 )
 from switchboard_core.tools.contract import ToolResult, tool_call
+from switchboard_core.tools.ids import CanonicalId
 
 
 class VisitHistoryRequest(BaseModel):
-    canonical_id: str
+    canonical_id: CanonicalId
 
 
 class VisitHistoryOutput(ToolResult):

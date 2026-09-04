@@ -12,47 +12,59 @@
       "provenance_saltbush"
     ]
   },
-  "measured_at": "2026-09-03T17:26:46.977881+00:00",
+  "measured_at": "2026-09-04T00:30:26.214689+00:00",
   "layer4": {
-    "SQL": {
-      "calls": 66,
-      "measured_on": "duration_ms",
-      "p50_ms": 1.303,
-      "p95_ms": 8.903,
-      "max_ms": 27.391,
-      "budget_ms": 40
+    "suite": {
+      "SQL": {
+        "calls": 66,
+        "measured_on": "duration_ms",
+        "p50_ms": 1.303,
+        "p95_ms": 8.903,
+        "max_ms": 27.391,
+        "budget_ms": 40
+      },
+      "hybrid": {
+        "calls": 13,
+        "measured_on": "postgres_ms",
+        "p50_ms": 1.392,
+        "p95_ms": 2.774,
+        "max_ms": 3.1,
+        "budget_ms": 1300
+      },
+      "logic": {
+        "calls": 14,
+        "measured_on": "duration_ms",
+        "p50_ms": 0.028,
+        "p95_ms": 0.292,
+        "max_ms": 0.75,
+        "budget_ms": null
+      },
+      "web": {
+        "calls": 3,
+        "measured_on": "duration_ms",
+        "p50_ms": 0.168,
+        "p95_ms": 0.17,
+        "max_ms": 0.17,
+        "budget_ms": 1500
+      },
+      "write": {
+        "calls": 34,
+        "measured_on": "duration_ms",
+        "p50_ms": 2.146,
+        "p95_ms": 3.692,
+        "max_ms": 5.656,
+        "budget_ms": null
+      }
     },
-    "hybrid": {
-      "calls": 13,
-      "measured_on": "postgres_ms",
-      "p50_ms": 1.392,
-      "p95_ms": 2.774,
-      "max_ms": 3.1,
-      "budget_ms": 1300
-    },
-    "logic": {
-      "calls": 14,
-      "measured_on": "duration_ms",
-      "p50_ms": 0.028,
-      "p95_ms": 0.292,
-      "max_ms": 0.75,
-      "budget_ms": null
-    },
-    "web": {
-      "calls": 3,
-      "measured_on": "duration_ms",
-      "p50_ms": 0.168,
-      "p95_ms": 0.17,
-      "max_ms": 0.17,
-      "budget_ms": 1500
-    },
-    "write": {
-      "calls": 34,
-      "measured_on": "duration_ms",
-      "p50_ms": 2.146,
-      "p95_ms": 3.692,
-      "max_ms": 5.656,
-      "budget_ms": null
+    "conversations": {
+      "SQL": {
+        "calls": 13,
+        "measured_on": "duration_ms",
+        "p50_ms": 5.494,
+        "p95_ms": 10.871,
+        "max_ms": 18.046,
+        "budget_ms": 40
+      }
     }
   }
 }

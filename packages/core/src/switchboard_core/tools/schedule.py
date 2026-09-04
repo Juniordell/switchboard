@@ -18,6 +18,7 @@ from switchboard_core.knowledge.schedule import ScheduledJob
 from switchboard_core.knowledge.schedule import get_schedule as _get_schedule
 from switchboard_core.tools.caller_role import CallerRole
 from switchboard_core.tools.contract import ToolResult, tool_call
+from switchboard_core.tools.ids import CustomerId
 
 #: Roles that only ever see their own work. `TECH` and `OWNER` are internal
 #: and see the whole day.
@@ -30,7 +31,7 @@ class ScheduleRequest(BaseModel):
     role: CallerRole
 
     #: Required for a customer-shaped caller, ignored for an internal one.
-    customer_id: str | None = None
+    customer_id: CustomerId | None = None
 
     @model_validator(mode="after")
     def _customers_must_be_identified(self) -> "ScheduleRequest":

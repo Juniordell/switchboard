@@ -20,11 +20,12 @@ from switchboard_core.db.ops.bookings import JobReschedule
 from switchboard_core.knowledge.schedule import effective_job
 from switchboard_core.tools.contract import ToolResult, tool_call
 from switchboard_core.tools.errors import JobNotFoundError
+from switchboard_core.tools.ids import JobId
 from switchboard_core.tools.writes import idempotency_key, record_write
 
 
 class MoveJobRequest(BaseModel):
-    job_id: str
+    job_id: JobId
     scheduled_start: datetime.datetime
 
     #: Same rule as `book_job`: no schedule change without the caller's own

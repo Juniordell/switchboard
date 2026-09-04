@@ -53,7 +53,22 @@ from switchboard_core.knowledge.warranty_notes import (
 
 
 class WarrantyCoverage(StrEnum):
+    """Four states, not three, and not a boolean.
+
+    `WAS_COVERED` exists because of a real call. Level 2 used to return
+    `YES` with a `basis` that carefully explained the coverage was
+    historical, and the agent read the field and said "yes, the TXV is
+    under warranty" - present tense, about a 2023 invoice. The prose was
+    right and got ignored, which is what prose does when a structured
+    field next to it says something simpler.
+
+    `docs/AGENTS.md`: "Level 2 is stated as historical: the part *was*
+    covered on that visit, which is not the same as covered today." That
+    sentence is now a value rather than a paragraph in a prompt.
+    """
+
     YES = "yes"
+    WAS_COVERED = "was_covered"
     NO = "no"
     UNKNOWN = "unknown"
 
@@ -151,7 +166,7 @@ def _level_2_invoice_items(
     row = max(matches, key=lambda r: r.item_date or datetime.datetime.min)
     date_str = row.item_date.date().isoformat() if row.item_date else "an unknown date"
     return WarrantyStatusResult(
-        covered=WarrantyCoverage.YES,
+        covered=WarrantyCoverage.WAS_COVERED,
         level=2,
         basis=(
             f"invoice {row.invoice_number} ({date_str}) billed "

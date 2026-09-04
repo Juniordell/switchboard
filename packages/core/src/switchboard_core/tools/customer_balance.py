@@ -13,10 +13,11 @@ from switchboard_core.knowledge.customer_balance import (
     get_customer_balance as _get_customer_balance,
 )
 from switchboard_core.tools.contract import ToolResult, tool_call
+from switchboard_core.tools.ids import CustomerId
 
 
 class CustomerBalanceRequest(BaseModel):
-    customer_id: str
+    customer_id: CustomerId
 
 
 class CustomerBalanceOutput(ToolResult):

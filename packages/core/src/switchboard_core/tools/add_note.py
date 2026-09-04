@@ -18,11 +18,12 @@ from switchboard_core.db.ops.bookings import AgentNote
 from switchboard_core.knowledge.schedule import effective_job
 from switchboard_core.tools.contract import ToolResult, tool_call
 from switchboard_core.tools.errors import JobNotFoundError
+from switchboard_core.tools.ids import JobId
 from switchboard_core.tools.writes import derived_id, idempotency_key, record_write
 
 
 class AddNoteRequest(BaseModel):
-    job_id: str
+    job_id: JobId
     content: str
 
     @field_validator("content")

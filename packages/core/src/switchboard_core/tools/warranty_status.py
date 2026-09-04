@@ -18,10 +18,11 @@ from switchboard_core.knowledge.warranty_status import (
     evaluate_warranty_status as _evaluate_warranty_status,
 )
 from switchboard_core.tools.contract import ToolResult, tool_call
+from switchboard_core.tools.ids import CanonicalId
 
 
 class WarrantyStatusRequest(BaseModel):
-    canonical_id: str
+    canonical_id: CanonicalId
 
     #: The equipment the caller named, if they named any. Levels 1 and 2
     #: match on it; the rule still evaluates without it, at lower levels.
