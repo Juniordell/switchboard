@@ -27,9 +27,9 @@ boundary it protects.
 
 from typing import ClassVar
 
-from livekit.agents import Agent, function_tool
+from livekit.agents import NOT_GIVEN, Agent, ChatContext, NotGivenOr, function_tool
 
-from switchboard_agent.tool_bridge import build_tools_for
+from switchboard_agent.tool_bridge import build_tools_for, question_answered
 from switchboard_core.tools import CONTROL_TOOLS, READ_TOOLS, WRITE_TOOLS
 
 #: `docs/ARCHITECTURE.md`: Triage returns address and customer candidates
@@ -72,12 +72,19 @@ class SwitchboardAgent(Agent):
         if unknown:
             raise TypeError(f"{cls.__name__} names unknown tools: {sorted(unknown)}")
 
-    def __init__(self, *, instructions: str, call_id: str) -> None:
+    def __init__(
+        self,
+        *,
+        instructions: str,
+        call_id: str,
+        chat_ctx: NotGivenOr[ChatContext] = NOT_GIVEN,
+    ) -> None:
         # Derived from the validated class attribute, never passed in:
         # there is no argument here that could carry a write tool into a
         # read-path agent.
         super().__init__(
             instructions=instructions,
+            chat_ctx=chat_ctx,
             tools=build_tools_for(
                 self.NAME, sorted(self.TOOLS | frozenset(CONTROL_TOOLS)), call_id
             ),
@@ -152,8 +159,17 @@ Do not narrate the handoff; just do it and let the next voice continue.
     ) -> "Agent":
         """Hand the call on once identity is resolved. Pass whatever
         resolved: a canonical_id, a customer_id, or both."""
+        question_answered(self.call_id)
         return ServiceAgent(
-            self.call_id, canonical_id=canonical_id, customer_id=customer_id
+            self.call_id,
+            canonical_id=canonical_id,
+            customer_id=customer_id,
+            # The conversation goes with the call. Without this the next
+            # agent starts with an empty history and asks "what can I help
+            # you with?" to someone who just said - two real calls did
+            # exactly that. `exclude_instructions` leaves Triage's prompt
+            # behind so Service speaks from its own.
+            chat_ctx=self.chat_ctx.copy(exclude_instructions=True),
         )
 
 
@@ -164,7 +180,12 @@ class ServiceAgent(SwitchboardAgent):
     NAME = "Service"
 
     def __init__(
-        self, call_id: str, *, canonical_id: str = "", customer_id: str = ""
+        self,
+        call_id: str,
+        *,
+        canonical_id: str = "",
+        customer_id: str = "",
+        chat_ctx: NotGivenOr[ChatContext] = NOT_GIVEN,
     ) -> None:
         known = []
         if canonical_id:
@@ -173,6 +194,7 @@ class ServiceAgent(SwitchboardAgent):
             known.append(f"Their customer id is {customer_id}.")
         super().__init__(
             call_id=call_id,
+            chat_ctx=chat_ctx,
             instructions=_SHARED_RULES
             + f"""
 Identity is resolved. {" ".join(known)}
@@ -219,10 +241,12 @@ they ask for one.
         """Call this immediately when the caller wants to book, move or
         annotate work. Internal and invisible to the caller: do not ask
         permission and do not mention it. Not a transfer to a person."""
+        question_answered(self.call_id)
         return DispatchAgent(
             self.call_id,
             canonical_id=self.canonical_id,
             customer_id=self.customer_id,
+            chat_ctx=self.chat_ctx.copy(exclude_instructions=True),
         )
 
 
@@ -234,10 +258,16 @@ class DispatchAgent(SwitchboardAgent):
     NAME = "Dispatch"
 
     def __init__(
-        self, call_id: str, *, canonical_id: str = "", customer_id: str = ""
+        self,
+        call_id: str,
+        *,
+        canonical_id: str = "",
+        customer_id: str = "",
+        chat_ctx: NotGivenOr[ChatContext] = NOT_GIVEN,
     ) -> None:
         super().__init__(
             call_id=call_id,
+            chat_ctx=chat_ctx,
             instructions=_SHARED_RULES
             + f"""
 Identity is resolved. canonical_id={canonical_id or "unknown"},
