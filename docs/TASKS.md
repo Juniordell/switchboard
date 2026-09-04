@@ -279,35 +279,83 @@ Work one at a time. Do not skip ahead. Each task ends with `ruff check` and
       the safe direction for a budget, now stated rather than implicit.
 
 ## Phase 5 — Voice
-- [ ] T5.1 Single LiveKit agent, cascade pipeline, tools bound, dialable
-- [ ] T5.2 Triage / Service / Dispatch split with handoffs. Triage holds
-      `resolve_address`, `resolve_customer`, `identify_caller_role` and nothing
-      else; no job, invoice, note or schedule data before identity resolves.
-- [ ] T5.3 Booking as a task group with spoken confirmation, against the
+- [x] T5.1 Single LiveKit agent, cascade pipeline, tools bound, dialable
+      `AgentServer` + `@server.rtc_session(agent_name="switchboard")`, not the
+      `WorkerOptions` shape the PyPI readme still shows. STT keyterm hints from
+      `docs/DATA.md`'s frequent terms. Dialed and answered.
+- [x] T5.2 Triage / Service / Dispatch split with handoffs. Triage holds
+      `resolve_address` and `resolve_customer` and nothing else; no job,
+      invoice, note or schedule data before identity resolves.
+      **Text corrected:** this line used to list `identify_caller_role` on
+      Triage. It is `kind=logic`, computed by the system after
+      `resolve_customer` and never offered to a model (T4.1), so no agent
+      "holds" it as a selectable tool. The write boundary is enforced by
+      `__init_subclass__` raising `TypeError` at class-definition time, not by
+      a prompt — a Service subclass that names a write tool fails to import.
+- [x] T5.3 Booking as a task group with spoken confirmation, against the
       assumed working day in `docs/SCOPE.md`
-- [ ] T5.4 Warm transfer with contextual summary. `transfer_to_human` is
+      `BookingTask(AgentTask[str])` with a step-back path when the caller
+      changes their mind.
+- [x] T5.4 Warm transfer with contextual summary. `transfer_to_human` is
       `control`, so it is reachable from the read path.
 
 ## Phase 6 — Platform
-- [ ] T6.1 FastAPI: calls, tool_calls, jobs, review_queue endpoints
-- [ ] T6.2 `LISTEN/NOTIFY` → SSE endpoint
-- [ ] T6.3 React: today view, call log, live action feed, job detail. Today
-      view excludes stale scheduled jobs and surfaces them in their own bucket.
+- [x] T6.1 FastAPI: calls, tool_calls, jobs, review_queue endpoints
+- [x] T6.2 `LISTEN/NOTIFY` → SSE endpoint
+      Measured end to end, tool invocation to frame arrival: p50 10.7 ms,
+      p95 12.6 ms, max 45.0 ms against a 1000 ms requirement.
+- [x] T6.3 React: today view, call log, live action feed, job detail. Today
+      view excludes stale scheduled jobs.
+      **Half of this line is not built.** It used to end "and surfaces them in
+      their own bucket". The exclusion is implemented in the `/today` query per
+      `docs/SCOPE.md`, and `Today.tsx` explains the exclusion in its empty
+      state — but there is no separate stale bucket anywhere in `apps/web`.
+      Abandoned work is currently invisible to the office manager rather than
+      parked somewhere she can see it. Carried to Phase 9 as T9.5.
 
 ## Phase 7 — Async agents and tracing
-- [ ] T7.1 Post-call trigger on session end
-- [ ] T7.2 Extractor agent → structured facts
-- [ ] T7.3 Reviewer agent → confidence + proposals into `ai-ready-for-review`
-- [ ] T7.4 Langfuse via OpenTelemetry across call and pipeline
+- [x] T7.1 Post-call trigger on session end
+- [x] T7.2 Extractor agent → structured facts
+- [x] T7.3 Reviewer agent → confidence + proposals into `ai-ready-for-review`
+      The same tag that already appears on 137 jobs in the dataset; count
+      re-verified against the load.
+- [x] T7.4 Langfuse via OpenTelemetry across call and pipeline
+      Langfuse is a URL and a basic-auth header, nothing more — no vendor SDK
+      is imported. One trace spans the call and the pipeline that runs minutes
+      later in another process, by persisting the W3C `traceparent` on
+      `ops.calls`. Proven with an in-memory exporter: 4 spans, 1 trace,
+      extract and review parented to the call.
+      **Not verified against Langfuse itself** — `LANGFUSE_PUBLIC_KEY` and
+      `LANGFUSE_SECRET_KEY` are empty, so only the exporter path is exercised.
 
 ## Phase 8 — Harness v2
-- [ ] T8.1 `session.run()` conversation evals with LiveKit judges
-- [ ] T8.2 Handoff correctness assertions (Layer 3b, pre-deploy)
-- [ ] T8.3 Latency assertions per tool class from the eval run's own tool log
-- [ ] T8.4 Cases captured from real test calls
+- [x] T8.1 `session.run()` conversation evals with LiveKit judges
+      Sampled decisions are measured as a rate (4 of 5 must hold), not asserted
+      single-shot. The two judged assertions were initially **not running at
+      all** — `judge` is a coroutine and was called without `await`, so both
+      passed green having checked nothing; fixed, and verified by planting an
+      intent the agent cannot satisfy and watching it fail.
+- [x] T8.2 Handoff correctness assertions (Layer 3b, pre-deploy)
+- [x] T8.3 Latency assertions per tool class from the eval run's own tool log
+      Per-corpus baselines, a measured 1.0 ms absolute floor so sub-ms jitter
+      does not cry wolf, and `statistics.quantiles(method="inclusive")` — the
+      default extrapolates past the observed range and reported p95 > max.
+- [x] T8.4 Cases captured from real test calls
+      Five real calls, five defects, five permanent cases — but only two are
+      graded at Layer 1, because measurement showed all five selected the
+      correct tool even while broken. The other three are deferred to
+      `evals/test_captured_calls.py` via `asserts: captured_call`. 45 cases,
+      39 graded, 1 intentional red, 5 executed elsewhere.
 
 ## Phase 9 — Ship
 - [ ] T9.1 Deploy agent to LiveKit Cloud, api + web to Fly, db to Neon
+      **Not done.** `docs/DEPLOY.md` exists and is the ordered runbook for the
+      self-hosted path — Docker Postgres, local uvicorn, local Vite, the agent
+      via `cli.run_app`, and the SIP dispatch rule including the wrong-agent-name
+      failure that presents as silence. Nothing here has been deployed to
+      LiveKit Cloud, Fly or Neon, and no hosted target has been provisioned.
 - [ ] T9.2 Two full dry runs from a real phone
 - [ ] T9.3 README with the three deliverables, ARCHITECTURE final pass
 - [ ] T9.4 Screen recording of the full demo as a fallback
+- [ ] T9.5 Stale scheduled jobs get their own bucket in the dashboard
+      Carried from T6.3, which shipped the exclusion without the bucket.
