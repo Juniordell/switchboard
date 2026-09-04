@@ -348,13 +348,23 @@ Work one at a time. Do not skip ahead. Each task ends with `ruff check` and
       39 graded, 1 intentional red, 5 executed elsewhere.
 
 ## Phase 9 — Ship
-- [ ] T9.1 Deploy agent to LiveKit Cloud, api + web to Fly, db to Neon
-      **Not done.** `docs/DEPLOY.md` exists and is the ordered runbook for the
-      self-hosted path — Docker Postgres, local uvicorn, local Vite, the agent
-      via `cli.run_app`, and the SIP dispatch rule including the wrong-agent-name
-      failure that presents as silence. Nothing here has been deployed to
-      LiveKit Cloud, Fly or Neon, and no hosted target has been provisioned.
+- [x] T9.1 Deploy agent to LiveKit Cloud, api + web to Fly, db to Neon
+      All three, verified against the live targets rather than the deploy
+      logs. Neon: extensions, migrations 0009, loaders, `verify_load` 21/21
+      remote, 6,954/6,954 embeddings; the **direct** endpoint, because the
+      pooler drops LISTEN/NOTIFY silently and the SSE feed depends on it.
+      LiveKit Cloud: `CA_VoH4zVRwYwkX`, built from source by `lk agent create`
+      (`--image` is Enterprise-only); the Dockerfile moved to the root so the
+      build context includes `packages/core`; `CMD` gained `start`, without
+      which the container printed help and exited 0. Fly:
+      `switchboard-gulf-breeze`, one image, two processes (uvicorn + the
+      async worker), API under `/api` and the built frontend on every other
+      path, `--remote-only` because Docker Desktop had died.
+      `docs/DEPLOY.md` is the runbook.
 - [ ] T9.2 Two full dry runs from a real phone
+      Eight real calls so far, each of which changed something (see
+      `docs/DECISIONS.md` 2026-09-04). Stays open until two consecutive
+      calls need no fix.
 - [ ] T9.3 README with the three deliverables, ARCHITECTURE final pass
 - [ ] T9.4 Screen recording of the full demo as a fallback
 - [ ] T9.5 Stale scheduled jobs get their own bucket in the dashboard
