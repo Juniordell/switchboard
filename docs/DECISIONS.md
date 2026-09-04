@@ -357,3 +357,27 @@ failing on purpose.
   running**: `judge` is a coroutine and was called without `await`, so both
   passed green having checked nothing. Awaited now, and verified by
   planting an intent the agent cannot satisfy and watching it fail.
+
+## T8.4 - the five calls as golden cases
+
+- The five captured calls became **45 cases, not 45 graded cases**. Measured
+  first: all five selected the correct tool even while broken, and did so
+  before the fixes. Grading them on selection would have added five green
+  lines that caught none of the five bugs - the same shape as the
+  un-awaited judge. Three are deferred to `evals/test_captured_calls.py`
+  via `asserts: captured_call`, reusing the mechanism the two provenance
+  cases already had; two are graded at Layer 1 and marked `coverage_only`.
+- **`balance_resolves_before_refusing` is a sequence, not a no-tool case.**
+  `ask_identity_balance` already covers "no identity given, call nothing".
+  This one gives a name, so the opening move is to resolve it;
+  `get_customer_balance` stays in `forbids_tools` because a self-asserted
+  name is not verified identity - the gap `role_claim_unverified` owns.
+  This was the open label question; decided here, not assumed silently.
+- `EXECUTED_ELSEWHERE` became a marker→file map so the runner names which
+  file grades each deferred group. A deferred case that no file grades
+  would otherwise be indistinguishable from one that is covered.
+- Fixed two false claims found while verifying fixtures against the loaded
+  database: `evals/test_captured_calls.py` said the level-2 address was
+  "4120 Bowline Isle Rd" (I invented it; it is 416 S Coral Ridge Pkwy),
+  and `docs/HARNESS.md`'s Layer 1 example used "89 Harborlight Shores",
+  which does not exist in `knowledge.canonical_addresses`.

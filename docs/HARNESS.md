@@ -52,13 +52,21 @@ write that join. Verified against a real violation: planting
 1 naming the exact file and line. See `docs/DATA.md`.
 
 ## Layer 1 — Tool selection and arguments
-`evals/golden/tools.yaml`. 40 caller utterances labelled with expected tool
+`evals/golden/tools.yaml`. 45 caller utterances labelled with expected tool
 sequence and argument shape. Runs against the T4.0 client. Deterministic
 assertions, no judge, seconds.
 
-Example: "when were you last at 89 Harborlight Shores" must produce
-`resolve_address` → `get_visit_history`, and must **not** open with
-`search_notes`.
+**40 are graded here.** Example: "when were you last at 8504 east old
+mangrove road" must produce `resolve_address` → `get_visit_history`, and
+must **not** open with `search_notes`.
+
+**5 are graded elsewhere**, by the pytest files named in the runner's
+`EXECUTED_ELSEWHERE` map — 2 number-provenance cases and 3 captured from
+real calls. Those defects are about what a tool *returns*, not which tool
+gets picked, so grading them on selection would be a green line that
+catches nothing. The runner reports them as deferred rather than dropping
+them silently, and the tests that do grade them need no model, cost
+nothing, and break CI on every commit.
 
 ### The number-provenance case
 
@@ -99,6 +107,27 @@ Ct (4 jobs at that address, customer Starfish Hospitality) — where invoice 361
 belongs to Charlene Whitaker at 74 Oleander Key St.
 
 This runs on every commit. It is a CI failure, not a code-review catch.
+
+### Captured from real calls (T8.4)
+
+Five inbound calls on 2026-09-03 exposed five defects, and each is a
+permanent case now. What they are worth was measured before they were
+labelled: **all five selected the correct tool even while broken**, and
+still do. So only two are Layer 1 cases, and both are marked
+`coverage_only` — honest coverage, not regression guards:
+
+| Case | Defect | Graded by |
+|---|---|---|
+| `spoken_number_grouping` | "thirteen sixty three" summed to 76; the caller got another property's history | `test_captured_calls.py` |
+| `warranty_historical_tense` | level 2 returned `covered: yes`, and the agent said "it's under warranty" about a 2023 invoice | `test_captured_calls.py` |
+| `id_kind_refused` | a real customer id accepted in a `canonical_id` slot; the empty result was reported as "no history" | `test_captured_calls.py` |
+| `address_not_a_customer_name` | a street put into `resolve_customer(name=...)` | Layer 1 (coverage) |
+| `balance_resolves_before_refusing` | Triage refused a balance request without ever resolving the caller | Layer 1 (coverage) |
+
+The three deferred cases are the ones that would have gone red before the
+fix. The two Layer 1 cases would have been green throughout, because their
+defects lived in the voice agent's prompt and in argument routing, neither
+of which this layer sees — `docs/DECISIONS.md` records that reasoning.
 
 ### Intentional reds
 
