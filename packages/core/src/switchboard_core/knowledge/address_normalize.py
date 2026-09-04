@@ -22,7 +22,9 @@ Normalisation has two jobs, and they are different jobs:
    `Cv`/`Cove`, `N`/`North`, ...; see :data:`STREET_TOKEN_ABBREVIATIONS`). This
    applies identically to a stored address and to a caller's spoken query,
    because it is the same function.
-2. **Convert a spoken number into digits** (`"eighty nine"` → `"89"`), which
+2. **Convert a spoken number into digits** (`"eighty nine"` → `"89"`,
+   `"thirteen sixty three"` → `"1363"` - groups concatenate, they do not
+   add), which
    only a caller's transcribed speech ever needs, since every stored house
    number in the source is already a digit.
 
@@ -161,14 +163,12 @@ _WHITESPACE = re.compile(r"\s+")
 
 
 def _words_to_number(words: list[str]) -> int:
-    """Fold a run of English cardinal-number words into an integer.
+    """Fold one *group* of English cardinal-number words into an integer.
 
     Standard accumulate-and-carry: "hundred" scales the value collected so
-    far (defaulting to 1, so "nine hundred" and "hundred" both work),
-    "thousand" flushes that scaled value into the running total. Handles the
-    house-number range this dataset needs ("eighty nine" -> 89) and beyond
-    ("ten thousand three hundred forty three" -> 10343), though callers are
-    expected to just say digits for anything that large.
+    far, "thousand" flushes it. This handles a single group - "eighty nine"
+    is 89, "one hundred three" is 103. Splitting a spoken house number into
+    groups is `_number_groups`' job, and the two must not be confused.
     """
     total = 0
     current = 0
@@ -187,6 +187,51 @@ def _words_to_number(words: list[str]) -> int:
     return total + current
 
 
+def _number_groups(words: list[str]) -> list[list[str]]:
+    """Split a run of number words the way a person says a house number.
+
+    People read house numbers in **groups**, and the groups concatenate
+    rather than add: "thirteen sixty three" is 13 then 63, meaning 1363,
+    not 13 + 63. Folding the whole run with one accumulator returns 76, and
+    a caller at 1363 W Old Mangrove was offered three addresses on another
+    street - found on a real call, not in a test.
+
+    "eighty nine" stays one group because a tens word can absorb a
+    following unit, which is the pattern the T2.1 requirement rests on. A
+    new group starts wherever the next word cannot be absorbed: a teen or a
+    ten after a group that already has a value, or a unit after a unit.
+    """
+    groups: list[list[str]] = []
+    current: list[str] = []
+    absorbing = False  # the group ends in a tens word and can take a unit
+
+    for word in words:
+        if word in _MULTIPLIERS:
+            current.append(word)
+            absorbing = False
+            continue
+        if not current:
+            current.append(word)
+            absorbing = word in _TENS
+            continue
+        if absorbing and word in _ONES:
+            current.append(word)
+            absorbing = False
+            continue
+        if "hundred" in current or "thousand" in current:
+            # "one hundred three" is still one number.
+            current.append(word)
+            absorbing = word in _TENS
+            continue
+        groups.append(current)
+        current = [word]
+        absorbing = word in _TENS
+
+    if current:
+        groups.append(current)
+    return groups
+
+
 def _convert_number_word_runs(tokens: list[str]) -> list[str]:
     """Replace every maximal run of number words with its digit form."""
     out: list[str] = []
@@ -194,7 +239,8 @@ def _convert_number_word_runs(tokens: list[str]) -> list[str]:
 
     def flush() -> None:
         if run:
-            out.append(str(_words_to_number(run)))
+            # Groups concatenate: "thirteen sixty three" -> "13" + "63".
+            out.append("".join(str(_words_to_number(g)) for g in _number_groups(run)))
             run.clear()
 
     for token in tokens:
