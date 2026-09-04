@@ -20,6 +20,7 @@ so every row in `ops.write_audit` and every line in the tool call log traces
 back to a specific call (CLAUDE.md hard rule 5).
 """
 
+import asyncio
 import datetime
 import inspect
 import json
@@ -117,6 +118,36 @@ def call_core_tool(fn, request, *, call_id: str, handled_by: str):
             session.close()
 
 
+#: Calls where the last resolve came back ambiguous and the caller has
+#: not been asked yet. Keyed by call id; a process serves one call.
+#:
+#: This is what stops a transfer from standing in for a question. Two real
+#: calls hit `must_ask` and the agent transferred to a person instead of
+#: asking "which one" - after the prompt already said not to. The prompt
+#: was advice; this is a gate: while a question is pending,
+#: `transfer_to_human` is refused with a reason the model can act on.
+_pending_question: set[str] = set()
+
+RESOLVERS = frozenset({"resolve_address", "resolve_customer"})
+
+#: What the agent says into a silence while a tool is slow. `with_filler`
+#: fires only after the line has been idle this long, and never writes to
+#: the chat context - so the LLM cannot repeat it on the next turn.
+FILLER_DELAY_S = 1.2
+FILLERS = ("One moment.", "Let me pull that up.", "Just a second.")
+
+
+def _must_ask(outcome) -> bool:
+    """`must_ask` sits inside the resolve result, one level down."""
+    inner = getattr(outcome, "address", None) or getattr(outcome, "customer", None)
+    return bool(getattr(inner, "must_ask", False))
+
+
+def question_answered(call_id: str) -> None:
+    """A handoff means identity resolved; nothing is pending any more."""
+    _pending_question.discard(call_id)
+
+
 def _build(name: str, fn, call_id: str, handled_by: str):
     schema = _request_model(fn).model_json_schema()
 
@@ -129,7 +160,35 @@ def _build(name: str, fn, call_id: str, handled_by: str):
             # reason tool-arg validation exists in an LLM loop.
             return f"invalid arguments for {name}: {exc.errors(include_url=False)}"
 
-        outcome = call_core_tool(fn, request, call_id=call_id, handled_by=handled_by)
+        if name == "transfer_to_human" and call_id in _pending_question:
+            return (
+                "refused: you have not yet asked the caller which of the "
+                "candidates they meant. Ask them - they can answer in one "
+                "breath - and only transfer if they still cannot be resolved."
+            )
+
+        # The core tools are synchronous database work. Off the event loop,
+        # or they stall everything the session is doing - including the
+        # filler below, which can only fire if the loop is free to notice
+        # the silence.
+        async with context.with_filler(
+            lambda step: FILLERS[step % len(FILLERS)], delay=FILLER_DELAY_S
+        ):
+            outcome = await asyncio.to_thread(
+                call_core_tool, fn, request, call_id=call_id, handled_by=handled_by
+            )
+
+        if name in RESOLVERS:
+            if _must_ask(outcome):
+                _pending_question.add(call_id)
+            else:
+                _pending_question.discard(call_id)
+        elif name != "transfer_to_human" and getattr(outcome, "ok", True):
+            # Any other tool succeeding means the caller is resolved enough
+            # to be answered; a stale question must not block a transfer
+            # ten turns later.
+            _pending_question.discard(call_id)
+
         # A typed ToolError is an outcome the agent speaks around, not a
         # crash. It is already logged with ok=false.
         return outcome.model_dump_json()
