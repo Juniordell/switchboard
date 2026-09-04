@@ -120,6 +120,16 @@ _ALL_TOKEN_ABBREVIATIONS = {
 # numeric.
 # ---------------------------------------------------------------------------
 
+#: "oh" is how people say 0 inside a number - "eighty five oh four" is
+#: 8504. No vendor documents whether an STT emits "oh", "o" or "0" here,
+#: so this handles the word defensively rather than trusting the model.
+#:
+#: It is deliberately NOT in `_NUMBER_WORDS`: on its own, "oh" is an
+#: interjection ("oh, and one more thing"), and turning that into a 0
+#: would invent a house number out of a filler word. It only counts when
+#: it lands inside a run that is already numeric - see `_number_groups`.
+_OH = "oh"
+
 _ONES = {
     "zero": 0,
     "one": 1,
@@ -170,6 +180,9 @@ def _words_to_number(words: list[str]) -> int:
     is 89, "one hundred three" is 103. Splitting a spoken house number into
     groups is `_number_groups`' job, and the two must not be confused.
     """
+    if words == [_OH]:
+        return 0
+
     total = 0
     current = 0
     for word in words:
@@ -206,6 +219,16 @@ def _number_groups(words: list[str]) -> list[list[str]]:
     absorbing = False  # the group ends in a tens word and can take a unit
 
     for word in words:
+        if word == _OH:
+            # A spoken zero. Its own group, so "eighty five oh four"
+            # concatenates to 85|0|4 = 8504 instead of being folded into a
+            # neighbour's arithmetic.
+            if current:
+                groups.append(current)
+            groups.append([_OH])
+            current = []
+            absorbing = False
+            continue
         if word in _MULTIPLIERS:
             current.append(word)
             absorbing = False
@@ -245,6 +268,12 @@ def _convert_number_word_runs(tokens: list[str]) -> list[str]:
 
     for token in tokens:
         if token in _NUMBER_WORDS:
+            run.append(token)
+        elif token == _OH and run:
+            # A spoken zero, but only mid-run. `run` being non-empty is the
+            # whole guard: "eighty five oh four" is a house number, while a
+            # bare "oh" that starts a phrase is someone thinking out loud
+            # and must stay a word.
             run.append(token)
         else:
             flush()

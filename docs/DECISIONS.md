@@ -357,3 +357,83 @@ failing on purpose.
   running**: `judge` is a coroutine and was called without `await`, so both
   passed green having checked nothing. Awaited now, and verified by
   planting an intent the agent cannot satisfy and watching it fail.
+
+## T8.4 - the five calls as golden cases
+
+- The five captured calls became **45 cases, not 45 graded cases**. Measured
+  first: all five selected the correct tool even while broken, and did so
+  before the fixes. Grading them on selection would have added five green
+  lines that caught none of the five bugs - the same shape as the
+  un-awaited judge. Three are deferred to `evals/test_captured_calls.py`
+  via `asserts: captured_call`, reusing the mechanism the two provenance
+  cases already had; two are graded at Layer 1 and marked `coverage_only`.
+- **`balance_resolves_before_refusing` is a sequence, not a no-tool case.**
+  `ask_identity_balance` already covers "no identity given, call nothing".
+  This one gives a name, so the opening move is to resolve it;
+  `get_customer_balance` stays in `forbids_tools` because a self-asserted
+  name is not verified identity - the gap `role_claim_unverified` owns.
+  This was the open label question; decided here, not assumed silently.
+- `EXECUTED_ELSEWHERE` became a marker→file map so the runner names which
+  file grades each deferred group. A deferred case that no file grades
+  would otherwise be indistinguishable from one that is covered.
+- Fixed two false claims found while verifying fixtures against the loaded
+  database: `evals/test_captured_calls.py` said the level-2 address was
+  "4120 Bowline Isle Rd" (I invented it; it is 416 S Coral Ridge Pkwy),
+  and `docs/HARNESS.md`'s Layer 1 example used "89 Harborlight Shores",
+  which does not exist in `knowledge.canonical_addresses`.
+
+## T9.x - the dashboard restyle
+
+- The web UI follows the **`Switchboard v3`** mockup (warm light theme) rather
+  than v1/v2 (dark). All three had the same structure; v3 is the newest and
+  the right register for a screen an office manager keeps open all day beside
+  a phone. Tokens live in `apps/web/src/index.css` as a Tailwind 4 `@theme`
+  block, so the palette is one place, not scattered through class names.
+- Two webfonts (General Sans, JetBrains Mono) load from Fontshare and Google
+  Fonts, each behind a system fallback stack, rather than being self-hosted.
+  Lives in `apps/web/index.html`. Worth revisiting if an offline-capable or
+  egress-restricted deploy ever matters.
+- The mockups' live-call screen, promise columns, READ/WRITE chips and
+  approve/reject buttons were **deliberately not built**: there is no live-call
+  API, no tool `kind` on `ops.tool_calls` (inferring it from the tool name
+  would be a guess about hard rule 4), and no mutation endpoint. Buttons that
+  do nothing are worse than no buttons - the same rule as T6.3's "nothing
+  dressed up as a feature".
+
+## 2026-09-04 — production calls, and what they changed
+
+- **Handoffs carry `chat_ctx.copy(exclude_instructions=True)`.** Service and
+  Dispatch were built with no history and asked "what can I help you with?"
+  to a caller who had just said; two of three real handoffs did it. The
+  conversation goes with the call, the previous agent's prompt does not.
+  Lives in `agents.py`.
+- **`transfer_to_human` is gated in the tool bridge while a resolve is
+  `must_ask` and unanswered.** Two real calls transferred instead of asking
+  "which one", after the prompt already said not to. Prompt was advice;
+  this refuses with a reason the model can act on. Cleared by a handoff or
+  by any other tool succeeding. Lives in `tool_bridge.py`.
+- **Core tools run in a thread, under `RunContext.with_filler` (1.2 s).**
+  `call_core_tool` was synchronous database I/O on the event loop. The
+  filler never enters the chat context, so the LLM cannot repeat it.
+  Measured before: median 7.0 s from caller to agent on six real calls.
+- **`preemptive_tts` on; `numerals` off.** `numerals` rewrote every spoken
+  "one" as a digit ("1 of the tax"); `smart_format` alone shapes the numbers
+  that are addresses. Both in `main.py`.
+- **Eighteen street names are STT keyterms**, measured as the most frequent
+  in `canonical_addresses` without suffix. "Old Mangrove" was transcribed
+  "Old Monroe" three times. 32 terms total.
+- **The tracer provider is flushed before the job process exits.** Langfuse
+  had every extract/review trace and not one call: spans were batched and
+  the process died first. T7.4's "one trace" was not true in production
+  until this.
+- **Authentication stays out of scope, with the design measured** — see the
+  security analysis: an address alone reaches avg 5.4 notes (max 53), 1,114
+  notes carry access-code structure, 436 jobs carry $655k owed. Proposed
+  tiers on the tool contract in the spirit of `MAY_WRITE`, and `search_notes`
+  redaction at the tool boundary. Not built the day before delivery.
+- **Three calls that predate the shutdown fix had `ended_at` backfilled**
+  from their last transcript turn. They would have read "in progress"
+  forever on the dashboard.
+- **Dashboard**: stats are 22px tiles (they were 11px, same as column
+  headers); Jobs drops the "Source" column that said "loaded" on every row;
+  a level 4-6 warranty is one line. From screenshots, not from the code.

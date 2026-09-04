@@ -51,6 +51,23 @@ MAX_LIMIT = 500
 SessionDep = Annotated[Session, Depends(get_session)]
 LimitQuery = Annotated[int, Query(ge=1, le=MAX_LIMIT)]
 
+#: The customer as a person reads it. The company when there is one, else
+#: the name, else the id - never nothing, because a row with no customer
+#: is still a row. Same rule as `resolve_customer` speaks it. Written once
+#: so the four endpoints that show a customer cannot drift.
+CUSTOMER_NAME = """
+    COALESCE(NULLIF(cu.company, ''),
+             NULLIF(trim(both ' ' from COALESCE(cu.first_name, '') || ' ' ||
+                                       COALESCE(cu.last_name, '')), ''),
+             {id_column})
+""".strip()
+
+#: The street as a person reads it, from the two lines the source keeps.
+STREET = """
+    trim(both ' ' from COALESCE({j}.address_street, '') || ' ' ||
+         COALESCE({j}.address_street_line_2, ''))
+""".strip()
+
 
 class Page(BaseModel):
     items: list[dict[str, Any]]
@@ -68,7 +85,14 @@ def list_calls(session: SessionDep, limit: LimitQuery = DEFAULT_LIMIT) -> Page:
     return _page(
         session,
         """
-        SELECT c.call_id, c.caller, c.started_at, c.ended_at, c.last_agent,
+        SELECT c.call_id, c.caller, c.started_at, c.ended_at,
+               -- The column is never written today; the transcript knows
+               -- which agent spoke last, and that is what the question means.
+               COALESCE(c.last_agent,
+                        (SELECT t.agent FROM ops.transcript_turns t
+                          WHERE t.call_id = c.call_id AND t.role = 'assistant'
+                            AND t.agent IS NOT NULL
+                          ORDER BY t.seq DESC LIMIT 1)) AS last_agent,
                (SELECT count(*) FROM ops.tool_calls t
                  WHERE t.call_id = c.call_id) AS tool_calls
         FROM ops.calls c
@@ -113,19 +137,30 @@ def list_jobs(session: SessionDep, limit: LimitQuery = DEFAULT_LIMIT) -> Page:
         """
         SELECT * FROM (
             SELECT j.id AS job_id, j.job_number, j.customer_id,
+                   """
+        + CUSTOMER_NAME.format(id_column="j.customer_id")
+        + """ AS customer,
                    COALESCE(r.scheduled_start, j.scheduled_start) AS scheduled_start,
                    j.work_status, j.description,
+                   """
+        + STREET.format(j="j")
+        + """ AS display_address,
                    false AS agent_booked, (r.job_id IS NOT NULL) AS rescheduled
             FROM source.jobs j
             LEFT JOIN ops.job_reschedules r ON r.job_id = j.id
+            LEFT JOIN source.customers cu ON cu.id = j.customer_id
             WHERE COALESCE(r.scheduled_start, j.scheduled_start) IS NOT NULL
             UNION ALL
             SELECT b.job_id, NULL, b.customer_id,
+                   """
+        + CUSTOMER_NAME.format(id_column="b.customer_id")
+        + """,
                    COALESCE(r.scheduled_start, b.scheduled_start),
-                   b.work_status, b.description,
+                   b.work_status, b.description, b.display_address,
                    true, (r.job_id IS NOT NULL)
             FROM ops.booked_jobs b
             LEFT JOIN ops.job_reschedules r ON r.job_id = b.job_id
+            LEFT JOIN source.customers cu ON cu.id = b.customer_id
         ) everything
         ORDER BY scheduled_start DESC
         LIMIT :limit
@@ -178,6 +213,9 @@ def today(
         """
         WITH effective AS (
             SELECT j.id AS job_id, j.job_number, j.customer_id,
+                   """
+        + CUSTOMER_NAME.format(id_column="j.customer_id")
+        + """ AS customer,
                    COALESCE(r.scheduled_start, j.scheduled_start) AS scheduled_start,
                    COALESCE(j.arrival_window, 0) AS arrival_window,
                    j.work_status, j.description,
@@ -191,9 +229,13 @@ def today(
                    false AS agent_booked
             FROM source.jobs j
             LEFT JOIN ops.job_reschedules r ON r.job_id = j.id
+            LEFT JOIN source.customers cu ON cu.id = j.customer_id
             WHERE COALESCE(r.scheduled_start, j.scheduled_start) IS NOT NULL
             UNION ALL
             SELECT b.job_id, NULL, b.customer_id,
+                   """
+        + CUSTOMER_NAME.format(id_column="b.customer_id")
+        + """,
                    COALESCE(r.scheduled_start, b.scheduled_start),
                    b.arrival_window, b.work_status, b.description,
                    b.display_address,
@@ -202,6 +244,7 @@ def today(
                    true
             FROM ops.booked_jobs b
             LEFT JOIN ops.job_reschedules r ON r.job_id = b.job_id
+            LEFT JOIN source.customers cu ON cu.id = b.customer_id
         )
         SELECT * FROM effective
         WHERE scheduled_start >= CAST(COALESCE(:on, CURRENT_DATE::text) AS date)
@@ -276,13 +319,19 @@ def job_detail(job_id: str, session: SessionDep) -> dict[str, Any]:
         session.execute(
             text(
                 """
-            SELECT j.id AS job_id, j.job_number, j.customer_id, j.work_status,
-                   j.description, j.scheduled_start, j.completed_at,
+            SELECT j.id AS job_id, j.job_number, j.customer_id,
+                   """
+                + CUSTOMER_NAME.format(id_column="j.customer_id")
+                + """ AS customer,
+                   j.work_status, j.description, j.scheduled_start, j.completed_at,
                    j.outstanding_balance,
-                   trim(both ' ' from COALESCE(j.address_street, '') || ' ' ||
-                        COALESCE(j.address_street_line_2, '')) AS display_address,
+                   """
+                + STREET.format(j="j")
+                + """ AS display_address,
                    j.address_zip, j.address_street, j.address_street_line_2
-            FROM source.jobs j WHERE j.id = :j
+            FROM source.jobs j
+            LEFT JOIN source.customers cu ON cu.id = j.customer_id
+            WHERE j.id = :j
             """
             ),
             {"j": job_id},
@@ -295,10 +344,14 @@ def job_detail(job_id: str, session: SessionDep) -> dict[str, Any]:
         booked = (
             session.execute(
                 text(
-                    "SELECT job_id, NULL AS job_number, customer_id, work_status, "
-                    "description, scheduled_start, NULL AS completed_at, "
-                    "0 AS outstanding_balance, display_address "
-                    "FROM ops.booked_jobs WHERE job_id = :j"
+                    "SELECT b.job_id, NULL AS job_number, b.customer_id, "
+                    + CUSTOMER_NAME.format(id_column="b.customer_id")
+                    + " AS customer, b.work_status, b.description, "
+                    "b.scheduled_start, NULL AS completed_at, "
+                    "0 AS outstanding_balance, b.display_address "
+                    "FROM ops.booked_jobs b "
+                    "LEFT JOIN source.customers cu ON cu.id = b.customer_id "
+                    "WHERE b.job_id = :j"
                 ),
                 {"j": job_id},
             )

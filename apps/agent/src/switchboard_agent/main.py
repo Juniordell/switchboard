@@ -26,7 +26,7 @@ is the cheapest accuracy win available, and it comes from measured data
 rather than from a guess about HVAC vocabulary.
 """
 
-import contextlib
+import asyncio
 import datetime
 import logging
 import uuid
@@ -71,6 +71,39 @@ KEYTERMS = [
     # Not from the frequency table: the company's own name, which no STT
     # model has any reason to know.
     "Gulf Breeze Air",
+    # Nor are these. The nine terms above are equipment, taken from the
+    # frequency table in docs/DATA.md - but the words that decide *who is
+    # calling* were missing, and they are the ones that change the whole
+    # conversation. A real call turned "one of the techs" into "one of the
+    # tax", and the agent went looking for a customer named "tax".
+    "tech",
+    "technician",
+    "dispatch",
+    "work order",
+    # The streets. A closed vocabulary - these are the most frequent street
+    # names in knowledge.canonical_addresses, measured, without the suffix
+    # so "Road" and "Rd" both land. Real calls turned "Old Mangrove" into
+    # "Old Monroe" three times and "Cormorant Reef" into "Car more red
+    # Reef"; a street the STT has never heard is a street it will invent.
+    # 32 terms in all, inside Deepgram's recommended 20-50.
+    "Old Mangrove",
+    "Bayfront",
+    "Cowrie Hollow",
+    "Cormorant Reef",
+    "Firebush Pointe",
+    "Banyan Ridge",
+    "Sandcastle Shores",
+    "Sandcastle Harbor",
+    "Marlin Hollow",
+    "Allamanda Ridge",
+    "Amberjack Cay",
+    "Amberjack Key",
+    "Seahorse Ridge",
+    "Keel Hollow",
+    "Grouper Ridge",
+    "Nautilus Landing",
+    "Coquina Glen",
+    "Coral Ridge",
 ]
 
 STT_MODEL = "deepgram/nova-3"
@@ -84,7 +117,25 @@ TTS_VOICE = "Ashley"
 #: to trust here. This buys the caller a pause between the question and the
 #: address, and it is a genuine trade: every turn now waits this much longer
 #: before the agent starts speaking.
-ENDPOINTING_MIN_DELAY = 1.0
+#: Raised from 1.0 after a production call was cut mid-address: the caller
+#: said "eighty five oh four East Old Mangrove", the turn was committed
+#: during the pause, and the agent searched on the fragment. LiveKit's own
+#: warning names this - "transcript arrives after turn has been committed,
+#: consider raising min_delay to accommodate a slow stt" - and reading
+#: `voice/audio_recognition.py` confirms it: the turn is committed on
+#: timing, the STT's final transcript lands after the commit and is then
+#: discarded because there is no prediction left to attach it to.
+#:
+#: This is the floor, not the wait. Endpointing is `dynamic`, so the
+#: effective delay is learned upward from the caller's own pauses. But it
+#: only learns from pauses where the agent did not speak, so it could not
+#: learn its way out of this one - the agent had already answered.
+#:
+#: The cost is real and paid on every turn: 0.6s more before the agent
+#: starts speaking. Published guidance puts a good p95 under ~1.4s, so
+#: this spends most of that budget. Deliberate: half a second of waiting
+#: is cheaper than reading a caller another property's history.
+ENDPOINTING_MIN_DELAY = 1.6
 
 #: How long a turn the detector is unsure about may wait.
 ENDPOINTING_MAX_DELAY = 4.0
@@ -98,7 +149,7 @@ def _open_call(call_id: str, caller: str | None, traceparent: str | None) -> Non
     Best effort. A database the agent cannot reach is a reason to answer
     the phone without a dashboard, not a reason to drop the call.
     """
-    with contextlib.suppress(Exception):
+    try:
         sessions = session_factory(create_db_engine())
         with sessions() as session, session.begin():
             session.execute(
@@ -114,6 +165,8 @@ def _open_call(call_id: str, caller: str | None, traceparent: str | None) -> Non
                     "tp": traceparent,
                 },
             )
+    except Exception:
+        logger.exception("could not record the start of call %s", call_id)
 
 
 def _close_call(call_id: str) -> None:
@@ -123,7 +176,10 @@ def _close_call(call_id: str) -> None:
     that marks the call over, so there is no window where a call is
     finished and nothing is going to read it.
     """
-    with contextlib.suppress(Exception):
+    # Never let teardown fail a call that already happened - but say so.
+    # This ran silently for one production call: the shutdown callback was
+    # dying upstream, and nothing here could have reported it either.
+    try:
         sessions = session_factory(create_db_engine())
         with sessions() as session, session.begin():
             session.execute(
@@ -132,13 +188,31 @@ def _close_call(call_id: str) -> None:
             )
             session.execute(
                 text(
+                    # `:c` appears twice, and Postgres deduces a different
+                    # type for each - varchar from the INSERT target, text
+                    # from the comparison - then refuses the statement as
+                    # AmbiguousParameter. The cast pins it. Same fix as the
+                    # customer_id cast in T3.2; Postgres 18 on Neon is
+                    # stricter here than the 17 we develop against.
                     "INSERT INTO ops.async_jobs (id, call_id, kind, status) "
-                    "SELECT :id, :c, 'extract', 'queued' WHERE NOT EXISTS ("
-                    "  SELECT 1 FROM ops.async_jobs WHERE call_id = :c "
-                    "  AND kind = 'extract' AND status IN ('queued','running'))"
+                    "SELECT :id, CAST(:c AS varchar), 'extract', 'queued' "
+                    # Any extract job for this call, whatever its status.
+                    # It used to read `status IN ('queued','running')`, which
+                    # is a race the worker wins: the close in _run_call
+                    # queues, the worker finishes in under ten seconds, and
+                    # the shutdown backstop then sees nothing outstanding and
+                    # queues a second one. A real call was extracted twice.
+                    # A transcript is extracted once, ever.
+                    "WHERE NOT EXISTS ("
+                    "  SELECT 1 FROM ops.async_jobs "
+                    "  WHERE call_id = CAST(:c AS varchar) "
+                    "  AND kind = 'extract')"
                 ),
                 {"id": f"job_{uuid.uuid4().hex}", "c": call_id},
             )
+        logger.info("closed call %s and queued it for extraction", call_id)
+    except Exception:
+        logger.exception("could not close call %s or queue it for extraction", call_id)
 
 
 @server.rtc_session(agent_name="switchboard")
@@ -168,14 +242,57 @@ async def entrypoint(ctx: JobContext) -> None:
         attributes={"switchboard.caller": _caller_from(call_id) or "unknown"},
     ):
         _open_call(call_id, _caller_from(call_id), current_traceparent())
-        ctx.add_shutdown_callback(lambda: _close_call(call_id))
+        # The backstop, for the case where _run_call raises: the close
+        # below would be skipped, and a call that happened must still be
+        # closed and queued.
+        #
+        # `to_thread`, not a bare lambda: LiveKit awaits what the callback
+        # returns, so a sync function here raises `await None` and the whole
+        # shutdown dies before it runs. It also keeps psycopg's blocking
+        # work off the event loop, which is right regardless.
+        ctx.add_shutdown_callback(lambda: asyncio.to_thread(_close_call, call_id))
+
         await _run_call(ctx, call_id)
+
+        # Close here, not only in the shutdown callback. Shutdown runs while
+        # the process is being torn down, and two round trips to a remote
+        # database did not finish before it went away - two production calls
+        # ended with ended_at still null and no extract job queued, and the
+        # second left no log at all to say why. This runs while the process
+        # is unambiguously alive. `_close_call` is idempotent (the UPDATE is
+        # by key, the INSERT is guarded by NOT EXISTS), so the backstop
+        # firing as well costs nothing.
+        await asyncio.to_thread(_close_call, call_id)
+
+    # The span above has ended; now push it out. Spans are batched, and the
+    # job process exits right after this returns - without a flush the
+    # whole call's trace dies with it. Langfuse had every extract and
+    # review trace and not one call, which is how this was found.
+    await asyncio.to_thread(tracer_provider().force_flush, 5_000)
 
 
 async def _run_call(ctx: JobContext, call_id: str) -> None:
 
     session = AgentSession(
-        stt=inference.STT(model=STT_MODEL, language="en"),
+        stt=inference.STT(
+            model=STT_MODEL,
+            language="en",
+            # Deepgram formats spoken numbers where it still has the audio,
+            # which is earlier and better informed than our normaliser can
+            # be from words alone. Their own example is this exact problem:
+            # "one two three southeast main street" -> "123 Southeast Main
+            # Street". A caller on this line says an address in almost every
+            # call, so this is not a marginal setting.
+            #
+            # `numerals` is deliberately NOT set alongside it. It was, for
+            # one deploy, and it converted every spoken "one" to a digit:
+            # a caller saying "this is one of the techs" was transcribed
+            # "this is 1 of the tax". `smart_format` already shapes the
+            # numbers that are actually addresses, dates and currency,
+            # which is the part we wanted; `numerals` also rewrites the
+            # ones that are just words.
+            extra_kwargs={"smart_format": True},
+        ),
         llm=inference.LLM(model=LLM_MODEL),
         tts=inference.TTS(model=TTS_MODEL, voice=TTS_VOICE),
         stt_context_options={"keyterms": KEYTERMS},
@@ -185,7 +302,13 @@ async def _run_call(ctx: JobContext, call_id: str) -> None:
                 "mode": "dynamic",
                 "min_delay": ENDPOINTING_MIN_DELAY,
                 "max_delay": ENDPOINTING_MAX_DELAY,
-            }
+            },
+            # The LLM already runs on interim transcripts by default; this
+            # lets TTS start too, so the first word is ready when the turn
+            # commits instead of after it. Costs a wasted synthesis when
+            # the caller keeps talking - cheap next to 7 s of dead air,
+            # which is what the real calls measured at the median.
+            "preemptive_generation": {"preemptive_tts": True},
         },
     )
 

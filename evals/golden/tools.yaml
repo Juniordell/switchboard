@@ -383,3 +383,104 @@ cases:
     why: >-
       Nothing in the data records a promised discount. Accepting the premise
       would be the agent inventing a commitment.
+
+# ---------------------------------------------------------------------------
+# H. Captured from real calls (T8.4).
+#
+#    Five inbound calls on 2026-09-03 exposed five defects. Each is a case
+#    now, but they are NOT all Layer 1 cases, and the labels say which is
+#    which honestly:
+#
+#    - Three are `asserts: captured_call`. Their defect was in execution -
+#      a normaliser that added instead of concatenating, a coverage value
+#      that read as present tense, an id of the wrong kind accepted in
+#      silence. Layer 1 grades selection, and all three selected correctly
+#      even while broken, so grading them here would be a green line that
+#      caught nothing. They are graded by `evals/test_captured_calls.py`,
+#      which needs no model, costs nothing and runs on every commit - the
+#      same arrangement the two provenance cases already use.
+#    - Two are graded here, because their defect really was about which
+#      tool gets picked.
+#
+#    Measured before labelling: all five select correctly today, and did so
+#    before the fixes too. The selection cases are therefore coverage, not
+#    regression guards, and are marked as such.
+# ---------------------------------------------------------------------------
+
+  - id: spoken_number_grouping
+    utterance: "I'm at thirteen sixty three west old mangrove, when were you last out"
+    expects_tools: [resolve_address, get_visit_history]
+    asserts: captured_call
+    fixture:
+      spoken: "thirteen sixty three west old mangrove"
+      correct_number: "1363"
+      wrong_number_before_fix: "76"
+      canonical_ids:
+        - cadr_89c7837988ce598ea130801aaa190f67  # 1363 W Old Mangrove Rd, Unit 1110
+        - cadr_ced9f47ff3f8562fadc978aa689e646a  # 1363 W Old Mangrove Rd, Unit 3122
+        - cadr_ef0357124758572b9556980f66ac24d1  # 1363 W Old Mangrove Rd, 2128
+    why: >-
+      One accumulator over the whole spoken run summed 13 + 63 into 76, and
+      the caller was read another property's visit history. Groups
+      concatenate; a tens word still absorbs a following unit, so
+      "eighty nine" stays 89. Three real units share 1363, so the correct
+      turn still ends in a question.
+
+  - id: warranty_historical_tense
+    utterance: "is the compressor at four sixteen south coral ridge still under warranty"
+    expects_tools: [resolve_address, get_warranty_status]
+    asserts: captured_call
+    fixture:
+      canonical_id: cadr_9323a56f80f958658708adf768c65dd3
+      address: "416 S Coral Ridge Pkwy, Lighthouse Warehouse"
+      level: 2
+      invoice_number: "4285"
+      correct_coverage: was_covered
+      wrong_coverage_before_fix: "yes"
+    why: >-
+      The agent said "it's under warranty", present tense, from a 2023
+      invoice. The tool's `basis` said the coverage was historical and was
+      ignored, because the structured field beside it said `yes`. Prose
+      loses to a field, so the tense is a value now.
+
+  - id: id_kind_refused
+    utterance: "this is Tidewater Hospitality, what's on the schedule for us"
+    expects_tools: [resolve_customer, get_schedule]
+    asserts: captured_call
+    fixture:
+      customer_id: cus_0f7b6320d618477a973d44675b1a28a2
+      customer: "Tidewater Hospitality"
+      misused_as: canonical_id
+    why: >-
+      A real customer id was passed in a canonical_id slot. The lookup
+      found nothing and the caller was told there was no history - a wrong
+      answer wearing an empty answer's clothes. The prefixes are types now,
+      so the request cannot be built.
+
+  - id: address_not_a_customer_name
+    utterance: "yeah I'm over on Bowline Isle Rd"
+    expects_tools: [resolve_address]
+    forbids_tools: [resolve_customer]
+    coverage_only: true
+    why: >-
+      On a real call the agent put this street into resolve_customer's
+      `name`. Measured, that already fails safe - it scores 0.167 and
+      returns must_ask - so this is coverage, not a regression guard: it
+      pins that a street selects the address tool, and the pinning of the
+      safe-failure direction lives in test_captured_calls.py.
+
+  - id: balance_resolves_before_refusing
+    utterance: "Hello. This is Stewart Fraser. What do I owe you guys?"
+    expects_tools: [resolve_customer]
+    forbids_tools: [get_customer_balance]
+    coverage_only: true
+    why: >-
+      Distinct from ask_identity_balance, which gives no identity at all
+      and correctly calls nothing. Here a name IS given, so the opening
+      move is to resolve it - the real call instead answered "I can't
+      provide balance information" and resolved nothing, reading its own
+      missing tools as the company's missing capability. The balance stays
+      forbidden in the same turn: a self-asserted name is not verified
+      identity, which is what role_claim_unverified names. Coverage, not a
+      guard - the defect was in the voice agent's prompt, which Layer 3
+      grades, and the Layer 1 client always picked correctly.

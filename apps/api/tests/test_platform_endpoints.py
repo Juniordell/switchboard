@@ -93,14 +93,14 @@ def recorder(committed):
 
 class TestTheReadEndpoints:
     def test_all_four_answer(self, client) -> None:
-        for path in ("/calls", "/tool_calls", "/jobs", "/review_queue"):
+        for path in ("/api/calls", "/api/tool_calls", "/api/jobs", "/api/review_queue"):
             assert client.get(path).status_code == 200, path
 
     def test_tool_calls_carries_the_seven_fields(
         self, client, a_recorded_tool_call
     ) -> None:
         """CLAUDE.md hard rule 5, as a row rather than a log line."""
-        row = client.get(f"/tool_calls?call_id={CALL_ID}").json()["items"][0]
+        row = client.get(f"/api/tool_calls?call_id={CALL_ID}").json()["items"][0]
         for field in (
             "call_id",
             "agent",
@@ -116,19 +116,21 @@ class TestTheReadEndpoints:
         self, client, a_recorded_tool_call
     ) -> None:
         mine = [
-            c for c in client.get("/calls").json()["items"] if c["call_id"] == CALL_ID
+            c
+            for c in client.get("/api/calls").json()["items"]
+            if c["call_id"] == CALL_ID
         ]
         assert mine and mine[0]["tool_calls"] == 1
 
     def test_jobs_unions_the_write_overlay(self, client) -> None:
         """A job the agent booked has no job number - the field service
         system assigns those - so the column is null, not invented."""
-        items = client.get("/jobs?limit=200").json()["items"]
+        items = client.get("/api/jobs?limit=200").json()["items"]
         assert items
         assert {"agent_booked", "rescheduled", "job_number"} <= set(items[0])
 
     def test_the_page_size_is_bounded(self, client) -> None:
-        assert client.get(f"/tool_calls?limit={MAX_LIMIT + 1}").status_code == 422
+        assert client.get(f"/api/tool_calls?limit={MAX_LIMIT + 1}").status_code == 422
 
 
 class TestTheRecorder:

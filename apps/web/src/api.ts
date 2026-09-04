@@ -12,6 +12,8 @@ export type Job = {
   job_id: string;
   job_number: string | null;
   customer_id: string;
+  /** Company, else name, else the id - the API never leaves it empty. */
+  customer?: string;
   scheduled_start: string;
   arrival_window?: number;
   work_status: string;
@@ -67,7 +69,11 @@ export type Warranty = {
 };
 
 export type JobDetail = {
-  job: Record<string, unknown> & { job_id: string; job_number: string | null };
+  job: Record<string, unknown> & {
+    job_id: string;
+    job_number: string | null;
+    customer?: string;
+  };
   notes: { id: string; content: string }[];
   agent_notes?: { id: string; content: string; call_id: string }[];
   invoices: { invoice_number: string; due_amount: number; status: string }[];
@@ -114,6 +120,56 @@ export function clockTime(iso: string): string {
     hour: "2-digit",
     minute: "2-digit",
   });
+}
+
+/**
+ * A `YYYY-MM-DD` day, spelled out.
+ *
+ * Built from the parts rather than `new Date(day)`: that parses a bare
+ * date as UTC midnight, which in Miami renders as the day before.
+ */
+export function dayLabel(day: string): string {
+  const [year, month, date] = day.split("-").map(Number);
+  return new Date(year, month - 1, date).toLocaleDateString("en-US", {
+    weekday: "short",
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+  });
+}
+
+/** How long a call ran, as m:ss. Null while it is still running. */
+export function elapsed(
+  startIso: string,
+  endIso: string | null,
+): string | null {
+  if (!endIso) return null;
+  const start = new Date(startIso).getTime();
+  const end = new Date(endIso).getTime();
+  const seconds = Math.max(0, Math.round((end - start) / 1000));
+  return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
+}
+
+/**
+ * Today as the person at the screen means it, `YYYY-MM-DD`.
+ *
+ * Not `toISOString().slice(0, 10)`: that is the UTC date, and at nine in
+ * the evening in Miami it is already tomorrow in UTC - the board would
+ * show the wrong day for the last hours of every shift.
+ */
+export function localDay(now = new Date()): string {
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+}
+
+/**
+ * The caller's number out of a call id. The dispatch rule names rooms
+ * `call-_<E.164>_<random>`, so the number is the middle segment; anything
+ * else is shown as is.
+ */
+export function callerOf(callId: string): string {
+  const parts = callId.split("_");
+  return parts.length >= 3 && parts[1].startsWith("+") ? parts[1] : callId;
 }
 
 export function stamp(iso: string): string {

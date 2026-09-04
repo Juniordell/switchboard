@@ -12,11 +12,12 @@ export default defineConfig({
     port: 5173,
     proxy: {
       // One origin in the browser, so no CORS config and no base URL to
-      // get wrong between dev and preview.
+      // get wrong between dev and preview. No rewrite: `/api` is the API's
+      // real prefix, not a dev-server fiction, so a path is the same string
+      // here, in the tests and in production.
       "/api": {
         target: "http://127.0.0.1:8000",
         changeOrigin: true,
-        rewrite: (path) => path.replace(/^\/api/, ""),
       },
     },
   },

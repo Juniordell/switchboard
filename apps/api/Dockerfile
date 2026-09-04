@@ -3,6 +3,20 @@
 #
 #     docker build -f apps/api/Dockerfile .
 #
+# This image is the whole dashboard: FastAPI under /api, and the built
+# frontend on every other path. One service, one origin, no CORS.
+#
+FROM node:22.12.0-slim AS web
+
+WORKDIR /web
+# package files first, so editing a component does not reinstall the tree
+COPY apps/web/package.json apps/web/package-lock.json ./
+RUN npm ci
+COPY apps/web ./
+# `npm run build` runs `tsc -b` first, so a type error fails the deploy
+# rather than shipping. CI does not do this yet; this does.
+RUN npm run build
+
 FROM astral/uv:0.12.9-python3.12-trixie-slim AS builder
 
 ENV UV_COMPILE_BYTECODE=1 \
@@ -31,6 +45,8 @@ RUN useradd --create-home --uid 1000 switchboard
 WORKDIR /app
 
 COPY --from=builder --chown=switchboard:switchboard /app /app
+# main.py serves this when it exists, and works without it when it does not.
+COPY --from=web --chown=switchboard:switchboard /web/dist /app/apps/web/dist
 
 ENV PATH="/app/.venv/bin:$PATH" \
     PYTHONUNBUFFERED=1
