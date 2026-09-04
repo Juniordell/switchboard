@@ -12,3 +12,16 @@ docs/
 .env
 .env.*
 !.env.example
+# Shared by every build that uses the repository root as its context -
+# the agent image AND `docker compose build api`. So this excludes only
+# what NEITHER image needs: the customer's data, the frontend, test
+# material. `apps/api/src` is deliberately not here, because the API image
+# is built from this same context and would lose its own source.
+apps/web
+evals
+infra
+scripts
+packages/core/tests
+apps/agent/tests
+*.md
+livekit.toml

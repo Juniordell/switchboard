@@ -1,7 +1,14 @@
-# Build context is the repository root, because apps/agent depends on
-# packages/core through the uv workspace:
+# The agent image. This file lives at the repository root, not in
+# apps/agent, because `lk agent create` builds from a working directory and
+# looks for a Dockerfile *in* it - and this build needs the root as its
+# context, since apps/agent depends on packages/core through the uv
+# workspace. Pointing lk at apps/agent would build without packages/core.
 #
-#     docker build -f apps/agent/Dockerfile .
+#     docker build -t switchboard-agent .
+#
+# `apps/api/Dockerfile` deliberately stays where it is: nothing constrains
+# where it is built from, so it keeps the per-app layout. This one is the
+# exception, and the paragraph above is why.
 #
 FROM astral/uv:0.12.9-python3.12-trixie-slim AS builder
 
