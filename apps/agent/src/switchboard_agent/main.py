@@ -26,7 +26,7 @@ is the cheapest accuracy win available, and it comes from measured data
 rather than from a guess about HVAC vocabulary.
 """
 
-import contextlib
+import asyncio
 import datetime
 import logging
 import uuid
@@ -98,7 +98,7 @@ def _open_call(call_id: str, caller: str | None, traceparent: str | None) -> Non
     Best effort. A database the agent cannot reach is a reason to answer
     the phone without a dashboard, not a reason to drop the call.
     """
-    with contextlib.suppress(Exception):
+    try:
         sessions = session_factory(create_db_engine())
         with sessions() as session, session.begin():
             session.execute(
@@ -114,6 +114,8 @@ def _open_call(call_id: str, caller: str | None, traceparent: str | None) -> Non
                     "tp": traceparent,
                 },
             )
+    except Exception:
+        logger.exception("could not record the start of call %s", call_id)
 
 
 def _close_call(call_id: str) -> None:
@@ -123,7 +125,10 @@ def _close_call(call_id: str) -> None:
     that marks the call over, so there is no window where a call is
     finished and nothing is going to read it.
     """
-    with contextlib.suppress(Exception):
+    # Never let teardown fail a call that already happened - but say so.
+    # This ran silently for one production call: the shutdown callback was
+    # dying upstream, and nothing here could have reported it either.
+    try:
         sessions = session_factory(create_db_engine())
         with sessions() as session, session.begin():
             session.execute(
@@ -139,6 +144,8 @@ def _close_call(call_id: str) -> None:
                 ),
                 {"id": f"job_{uuid.uuid4().hex}", "c": call_id},
             )
+    except Exception:
+        logger.exception("could not close call %s or queue it for extraction", call_id)
 
 
 @server.rtc_session(agent_name="switchboard")
@@ -168,7 +175,11 @@ async def entrypoint(ctx: JobContext) -> None:
         attributes={"switchboard.caller": _caller_from(call_id) or "unknown"},
     ):
         _open_call(call_id, _caller_from(call_id), current_traceparent())
-        ctx.add_shutdown_callback(lambda: _close_call(call_id))
+        # `to_thread`, not a bare lambda: LiveKit awaits what the callback
+        # returns, so a sync function here raises `await None` and the whole
+        # shutdown dies before it runs. It also keeps psycopg's blocking work
+        # off the event loop, which is right regardless.
+        ctx.add_shutdown_callback(lambda: asyncio.to_thread(_close_call, call_id))
         await _run_call(ctx, call_id)
 
 
