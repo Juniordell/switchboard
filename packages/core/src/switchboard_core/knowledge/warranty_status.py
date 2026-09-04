@@ -84,6 +84,14 @@ class WarrantyEvidence(BaseModel):
     kind: Literal["job", "invoice", "note"]
     id: str
 
+    #: How the agent refers to this aloud. `id` is what the dashboard
+    #: links to; for a job it is the internal `job_...` id, and a real
+    #: caller was told their warranty was "associated with job number
+    #: job_92c15112f0524b9f9ce428c420297fea". The tool layer fills this
+    #: with the job number, the invoice number, or the visit - never an
+    #: id - and the agent is told to speak this field and nothing else.
+    spoken: str = ""
+
 
 class WarrantyStatusResult(BaseModel):
     covered: WarrantyCoverage
