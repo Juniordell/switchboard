@@ -14,6 +14,7 @@ from switchboard_core.knowledge.resolve_customer import (
     resolve_customer as _resolve_customer,
 )
 from switchboard_core.tools.contract import ToolResult, tool_call
+from switchboard_core.tools.ids import CanonicalId
 
 
 class ResolveCustomerRequest(BaseModel):
@@ -22,7 +23,7 @@ class ResolveCustomerRequest(BaseModel):
 
     #: A `cadr_...` already resolved by `resolve_address`, if the caller
     #: gave an address first.
-    canonical_id: str | None = None
+    canonical_id: CanonicalId | None = None
 
     @model_validator(mode="after")
     def _needs_something_to_go_on(self) -> "ResolveCustomerRequest":

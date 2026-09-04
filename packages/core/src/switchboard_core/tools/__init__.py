@@ -50,6 +50,7 @@ from switchboard_core.tools.errors import (
     RetrievalUnavailableError,
     WebSearchUnavailableError,
 )
+from switchboard_core.tools.ids import CanonicalId, CustomerId, JobId
 from switchboard_core.tools.move_job import (
     MoveJobOutput,
     MoveJobRequest,
@@ -143,9 +144,12 @@ __all__ = [
     "CallerRole",
     "CallerRoleOutput",
     "CallerRoleRequest",
+    "CanonicalId",
     "CustomerBalanceOutput",
     "CustomerBalanceRequest",
+    "CustomerId",
     "InvalidEntityIdError",
+    "JobId",
     "JobNotFoundError",
     "MoveJobOutput",
     "MoveJobRequest",
