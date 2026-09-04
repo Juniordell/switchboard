@@ -31,7 +31,7 @@ export function Jobs() {
       note="Loaded work and the agent's writes, in one list."
       stats={
         <>
-          <Stat value={data.count} label="Most recent" />
+          <Stat value={data.count} label="Shown" />
           <Stat value={booked} label="Booked by agent" />
           <Stat value={moved} label="Rescheduled" />
         </>
@@ -47,9 +47,10 @@ export function Jobs() {
           fixed
           head={[
             { label: "Scheduled", className: "w-[172px]" },
-            { label: "Job", className: "w-[110px]" },
-            { label: "Customer", className: "w-[150px]" },
-            "Service",
+            { label: "Job", className: "w-[96px]" },
+            { label: "Customer", className: "w-[200px]" },
+            "Address",
+            { label: "Service", className: "w-[200px]" },
             { label: "Status", className: "w-[176px]" },
             { label: "Source", className: "w-[104px]" },
           ]}
@@ -67,11 +68,17 @@ export function Jobs() {
                   {job.job_number ?? job.job_id.slice(0, 8)}
                 </Link>
               </td>
-              <td className="truncate px-5 py-2.5 font-mono text-xs text-ink-lo">
-                {job.customer_id}
+              <td className="truncate px-5 py-2.5" title={job.customer}>
+                {job.customer ?? job.customer_id}
               </td>
               <td
-                className="truncate px-5 py-2.5"
+                className="truncate px-5 py-2.5 text-ink-mid"
+                title={job.display_address || undefined}
+              >
+                {job.display_address || "—"}
+              </td>
+              <td
+                className="truncate px-5 py-2.5 text-ink-mid"
                 title={job.description || undefined}
               >
                 {job.description || "—"}

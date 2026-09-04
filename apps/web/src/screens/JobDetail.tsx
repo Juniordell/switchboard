@@ -10,7 +10,7 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { useParams } from "react-router-dom";
-import { api, dollars, type Warranty } from "../api";
+import { api, dollars, stamp, type Warranty } from "../api";
 import {
   BackLink,
   Card,
@@ -84,9 +84,6 @@ function WarrantyCard({ warranty }: { warranty: Warranty }) {
             rule rather than from one record.
           </p>
         )}
-        <p className="mt-3 border-l-2 border-line-strong pl-3.5 text-ink-mid">
-          {warranty.basis}
-        </p>
         {uncertain && (
           <p className="mt-3 text-[13px] text-warn">
             Levels 4 to 6 are spoken as uncertain and offered for a human to
@@ -118,7 +115,7 @@ export function JobDetail() {
     <Screen
       back={<BackLink to="/jobs" label="Jobs" />}
       title={address || `Job ${number}`}
-      meta={`Job ${number} · ${job.customer_id ?? "no customer"}`}
+      meta={`Job ${number} · ${data.job.customer ?? job.customer_id ?? "no customer"}`}
       note={job.description ? String(job.description) : null}
       stats={
         <>
@@ -154,20 +151,22 @@ export function JobDetail() {
               </td>
             </tr>
             {[
-              ["Scheduled", job.scheduled_start],
-              ["Completed", job.completed_at],
-              ["Customer", job.customer_id],
-              ["Canonical address", job.canonical_id],
+              ["Customer", data.job.customer ?? job.customer_id],
+              ["Address", address || null],
               [
-                "Outstanding",
-                outstanding === null ? null : dollars(outstanding),
+                "Scheduled",
+                job.scheduled_start ? stamp(String(job.scheduled_start)) : null,
+              ],
+              [
+                "Completed",
+                job.completed_at ? stamp(String(job.completed_at)) : null,
               ],
             ].map(([label, value]) => (
               <tr key={String(label)}>
                 <td className="px-5 py-2 whitespace-nowrap text-ink-mid">
                   {label}
                 </td>
-                <td className="px-5 py-2 font-mono text-[13px]">
+                <td className="px-5 py-2 text-[13px]">
                   {value === null || value === undefined ? "—" : String(value)}
                 </td>
               </tr>

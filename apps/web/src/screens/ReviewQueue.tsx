@@ -35,6 +35,13 @@ function confidence(payload: Record<string, unknown>): number | null {
   return typeof value === "number" ? value : null;
 }
 
+/**
+ * The Reviewer's own line. Anything below it is why the item is here at
+ * all, so the meter turns on that number - not on a rounder one that
+ * would paint a 0.78 as doubtful when the Reviewer let it through.
+ */
+const CONFIDENCE_THRESHOLD = 0.75;
+
 function List({ label, items }: { label: string; items: string[] }) {
   if (items.length === 0) return null;
   return (
@@ -64,7 +71,7 @@ function Item({ item }: { item: ReviewItem }) {
       <div className="flex flex-wrap items-center gap-2.5">
         <span className="font-semibold">{item.title}</span>
         <Pill tone="warn">{item.kind}</Pill>
-        <Pill>{item.status}</Pill>
+        {item.status !== "open" && <Pill>{item.status}</Pill>}
         <span className="ml-auto font-mono text-xs text-ink-lo">
           {stamp(item.created_at)}
           {item.call_id && (
@@ -92,8 +99,10 @@ function Item({ item }: { item: ReviewItem }) {
       {score !== null && (
         <div className="mt-4">
           <Meter
-            filled={score >= 0.8 ? 3 : score >= 0.5 ? 2 : 1}
-            tone={score >= 0.8 ? "ok" : "warn"}
+            filled={
+              score >= CONFIDENCE_THRESHOLD ? 3 : score >= 0.5 ? 2 : 1
+            }
+            tone={score >= CONFIDENCE_THRESHOLD ? "ok" : "warn"}
           >
             Reviewer confidence {score.toFixed(2)}
           </Meter>

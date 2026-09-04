@@ -10,7 +10,7 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
-import { api, clockTime, dayLabel, type Job } from "../api";
+import { api, clockTime, dayLabel, localDay, type Job } from "../api";
 import {
   Nothing,
   Pill,
@@ -23,6 +23,14 @@ import {
 } from "../components";
 
 const UNASSIGNED = "Unassigned";
+
+/**
+ * A cancelled job is not work. It stays on the board - the office manager
+ * may want to know a slot opened up - but not under a tech's name as if
+ * someone were driving there, and not in the count of jobs to do. Seen on
+ * a real day: a "user canceled" visit listed as a tech's 3 p.m.
+ */
+const CANCELLED = new Set(["user canceled", "pro canceled"]);
 
 /** Column widths, shared by both tables so the two line up down the page. */
 const TIME = "w-[132px]";
@@ -93,11 +101,11 @@ function JobCells({ job }: { job: Job }) {
       >
         {job.description || "—"}
       </td>
-      <td
-        className="truncate px-5 py-2.5 text-ink-mid"
-        title={job.display_address || undefined}
-      >
-        {job.display_address || "—"}
+      <td className="truncate px-5 py-2.5" title={job.display_address || undefined}>
+        <div className="truncate">{job.display_address || "—"}</div>
+        {job.customer && (
+          <div className="truncate text-[13px] text-ink-mid">{job.customer}</div>
+        )}
       </td>
       <td className={`px-5 py-2.5 ${STATUS}`}>
         <Status
@@ -113,7 +121,7 @@ function JobCells({ job }: { job: Job }) {
 }
 
 export function Today() {
-  const today = new Date().toISOString().slice(0, 10);
+  const today = localDay();
   const { data, isPending, error } = useQuery({
     queryKey: ["today", today],
     queryFn: () => api.today(today),
@@ -122,13 +130,15 @@ export function Today() {
   if (isPending) return <Screen title="Today">Loading…</Screen>;
   if (error) return <Screen title="Today">{String(error)}</Screen>;
 
-  const groups = byTech(data.items);
+  const cancelled = data.items.filter((job) => CANCELLED.has(job.work_status));
+  const work = data.items.filter((job) => !CANCELLED.has(job.work_status));
+  const groups = byTech(work);
   const unassigned = groups.find(([tech]) => tech === UNASSIGNED)?.[1] ?? [];
   const roster = groups.filter(([tech]) => tech !== UNASSIGNED);
   // Counted off the job list, not off the groups: a job with two techs on
   // it appears in two groups and would otherwise be counted twice.
-  const assigned = data.items.filter((job) => job.techs?.length).length;
-  const booked = data.items.filter((job) => job.agent_booked).length;
+  const assigned = work.filter((job) => job.techs?.length).length;
+  const booked = work.filter((job) => job.agent_booked).length;
 
   return (
     <Screen
@@ -136,14 +146,17 @@ export function Today() {
       meta={dayLabel(today)}
       stats={
         <>
-          <Stat value={data.count} label="Jobs" />
+          <Stat value={work.length} label="Jobs" />
           <Stat value={roster.length} label="Techs" />
           <Stat value={unassigned.length} label="Unassigned" />
           <Stat value={booked} label="Booked by agent" />
+          {cancelled.length > 0 && (
+            <Stat value={cancelled.length} label="Cancelled" />
+          )}
         </>
       }
     >
-      {groups.length === 0 ? (
+      {data.items.length === 0 ? (
         <Nothing
           what="work scheduled today"
           why={`Nothing in source.jobs or the ops overlay starts on ${today}. Stale scheduled jobs — a start date already past — are excluded by docs/SCOPE.md's rule and are not counted here.`}
@@ -153,7 +166,7 @@ export function Today() {
           {unassigned.length > 0 && (
             <Section
               label="Needs a tech"
-              aside={`${unassigned.length} of ${data.count} jobs`}
+              aside={`${unassigned.length} of ${work.length} jobs`}
             >
               <Table
                 fixed
@@ -217,6 +230,27 @@ export function Today() {
                     </tr>
                   )),
                 )}
+              </Table>
+            </Section>
+          )}
+
+          {cancelled.length > 0 && (
+            <Section label="Cancelled today" aside={`${cancelled.length}`}>
+              <Table
+                fixed
+                head={[
+                  { label: "Time", className: TIME },
+                  { label: "Service", className: SERVICE },
+                  "Address",
+                  { label: "Status", className: STATUS },
+                  { label: "Job", className: JOB },
+                ]}
+              >
+                {cancelled.map((job) => (
+                  <tr key={job.job_id} className="hover:bg-hover">
+                    <JobCells job={job} />
+                  </tr>
+                ))}
               </Table>
             </Section>
           )}

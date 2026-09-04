@@ -86,6 +86,14 @@ function useOpenReviews(): number | null {
 
 type Feed = { events: number; last: string | null; connected: boolean };
 
+/** Which query keys each NOTIFY channel can have changed. */
+const KEYS_FOR: Record<string, string[]> = {
+  switchboard_tool_calls: ["calls", "call"],
+  switchboard_writes: ["jobs", "job", "today"],
+  switchboard_async_jobs: ["review_queue"],
+};
+const ALL_KEYS = ["calls", "call", "jobs", "job", "today", "review_queue"];
+
 /**
  * One EventSource for the whole shell.
  *
@@ -107,8 +115,13 @@ function useLiveFeed(): Feed {
       const event = JSON.parse(message.data);
       setEvents((n) => n + 1);
       setLast(event.data?.tool ?? event.data?.action ?? event.channel);
-      // Something changed on the server; let the open screen refetch.
-      queryClient.invalidateQueries();
+      // Refetch what the event says changed. An unscoped invalidation
+      // refetched every cached screen on every tool call - five tool calls
+      // in one conversation meant five refetches of a job detail nobody
+      // was looking at.
+      for (const key of KEYS_FOR[event.channel] ?? ALL_KEYS) {
+        queryClient.invalidateQueries({ queryKey: [key] });
+      }
     };
     return () => source.close();
   }, [queryClient]);
@@ -248,7 +261,7 @@ function MobileFeed({ events, connected }: Feed) {
     <span className="flex items-center gap-2">
       <LiveDot connected={connected} />
       <span className="font-mono text-xs tabular-nums text-ink-mid">
-        {connected ? events : "off"}
+        {connected ? events : "offline"}
       </span>
     </span>
   );
