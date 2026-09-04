@@ -22,21 +22,21 @@ def client() -> TestClient:
 
 def _post(client, name, body, *, call_id="call_http_test", as_of=AS_OF):
     headers = {"X-Call-Id": call_id, "X-As-Of": as_of}
-    return client.post(f"/tools/{name}", json=body, headers=headers)
+    return client.post(f"/api/tools/{name}", json=body, headers=headers)
 
 
 class TestTheBindingSurface:
     def test_every_tool_is_listed(self, client) -> None:
-        listed = {t["name"] for t in client.get("/tools").json()}
+        listed = {t["name"] for t in client.get("/api/tools").json()}
         assert listed == set(READ_TOOLS) | set(WRITE_TOOLS)
 
     def test_each_carries_a_json_schema_an_agent_can_bind(self, client) -> None:
-        for tool in client.get("/tools").json():
+        for tool in client.get("/api/tools").json():
             assert tool["request_schema"]["type"] == "object"
             assert "properties" in tool["request_schema"]
 
     def test_write_tools_are_flagged_and_are_all_dispatch(self, client) -> None:
-        writes = [t for t in client.get("/tools").json() if t["writes"]]
+        writes = [t for t in client.get("/api/tools").json() if t["writes"]]
         assert {t["name"] for t in writes} == set(WRITE_TOOLS)
         assert {t["agent"] for t in writes} == {"Dispatch"}
 
@@ -102,7 +102,7 @@ class TestFailureShapes:
         """CLAUDE.md hard rule 5: a call with nothing to attribute it to is
         not a valid call."""
         response = client.post(
-            "/tools/resolve_address", json={"spoken_address": "anything"}
+            "/api/tools/resolve_address", json={"spoken_address": "anything"}
         )
         assert response.status_code == 422
 

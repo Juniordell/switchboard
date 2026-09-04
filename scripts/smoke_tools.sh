@@ -96,7 +96,7 @@ print(doc if isinstance(doc, str) else json.dumps(doc))
 
 # call <tool> <json body> - prints the response body.
 call() {
-    curl -s -X POST "${BASE}/tools/$1" \
+    curl -s -X POST "${BASE}/api/tools/$1" \
         -H 'Content-Type: application/json' \
         -H "X-Call-Id: ${CALL_ID}" \
         -H 'X-As-Of: 2026-09-03T09:00:00+00:00' \
@@ -123,7 +123,7 @@ check() {
 }
 
 echo "=== the binding surface ==="
-TOOLS_JSON="$(curl -s "${BASE}/tools")"
+TOOLS_JSON="$(curl -s "${BASE}/api/tools")"
 TOOL_COUNT="$(python3 -c 'import json,sys; print(len(json.loads(sys.argv[1])))' "$TOOLS_JSON")"
 echo "  GET /tools → ${TOOL_COUNT} tools with JSON Schema"
 python3 -c '
