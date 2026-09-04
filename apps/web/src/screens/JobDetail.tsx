@@ -23,7 +23,7 @@ function WarrantyBox({ warranty }: { warranty: Warranty }) {
   return (
     <div className="rounded border border-slate-200 p-3">
       <div className="flex items-baseline gap-2">
-        <Pill tone={tone}>{warranty.covered}</Pill>
+        <Pill tone={tone}>{warranty.covered.replace("_", " ")}</Pill>
         <span className="text-sm font-medium text-slate-700">
           level {warranty.level}
         </span>
