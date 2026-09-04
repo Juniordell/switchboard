@@ -71,6 +71,15 @@ KEYTERMS = [
     # Not from the frequency table: the company's own name, which no STT
     # model has any reason to know.
     "Gulf Breeze Air",
+    # Nor are these. The nine terms above are equipment, taken from the
+    # frequency table in docs/DATA.md - but the words that decide *who is
+    # calling* were missing, and they are the ones that change the whole
+    # conversation. A real call turned "one of the techs" into "one of the
+    # tax", and the agent went looking for a customer named "tax".
+    "tech",
+    "technician",
+    "dispatch",
+    "work order",
 ]
 
 STT_MODEL = "deepgram/nova-3"
@@ -245,10 +254,14 @@ async def _run_call(ctx: JobContext, call_id: str) -> None:
             # Street". A caller on this line says an address in almost every
             # call, so this is not a marginal setting.
             #
-            # `numerals` converts digit words on its own; `smart_format`
-            # implies it and adds the address/date/currency shaping. Both
-            # are named so the intent survives a future reader.
-            extra_kwargs={"smart_format": True, "numerals": True},
+            # `numerals` is deliberately NOT set alongside it. It was, for
+            # one deploy, and it converted every spoken "one" to a digit:
+            # a caller saying "this is one of the techs" was transcribed
+            # "this is 1 of the tax". `smart_format` already shapes the
+            # numbers that are actually addresses, dates and currency,
+            # which is the part we wanted; `numerals` also rewrites the
+            # ones that are just words.
+            extra_kwargs={"smart_format": True},
         ),
         llm=inference.LLM(model=LLM_MODEL),
         tts=inference.TTS(model=TTS_MODEL, voice=TTS_VOICE),
