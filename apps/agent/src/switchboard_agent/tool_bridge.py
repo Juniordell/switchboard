@@ -34,6 +34,7 @@ from pydantic import ValidationError
 
 from switchboard_agent.text_client import NOT_MODEL_SELECTABLE
 from switchboard_core.db.session import create_db_engine, session_factory
+from switchboard_core.knowledge.call_scope import in_scope
 from switchboard_core.tools import CONTROL_TOOLS, READ_TOOLS, WRITE_TOOLS
 
 log = logging.getLogger("switchboard_agent.tools")
@@ -130,11 +131,79 @@ _pending_question: set[str] = set()
 
 RESOLVERS = frozenset({"resolve_address", "resolve_customer"})
 
+#: What each call has established about who is on the line. Resolving an
+#: address or a customer widens it; every tool that reads work at an
+#: address is checked against it.
+_scope_addresses: dict[str, set[str]] = {}
+_scope_customers: dict[str, set[str]] = {}
+
+#: Tools that describe work at a canonical address. `resolve_address` is
+#: not here on purpose: returning candidates leaks nothing, and refusing to
+#: resolve would stop a caller naming their own second property.
+SCOPED_BY_ADDRESS = frozenset(
+    {"get_visit_history", "get_warranty_status", "search_notes"}
+)
+
+
+def widen_scope(call_id: str, *, canonical_id: str = "", customer_id: str = "") -> None:
+    """Record an identity the call has established."""
+    if canonical_id:
+        _scope_addresses.setdefault(call_id, set()).add(canonical_id)
+    if customer_id:
+        _scope_customers.setdefault(call_id, set()).add(customer_id)
+
+
 #: What the agent says into a silence while a tool is slow. `with_filler`
 #: fires only after the line has been idle this long, and never writes to
 #: the chat context - so the LLM cannot repeat it on the next turn.
 FILLER_DELAY_S = 1.2
 FILLERS = ("One moment.", "Let me pull that up.", "Just a second.")
+
+
+def _log_rejected(
+    call_id: str, agent: str, tool: str, args: dict[str, Any], missing: list[str]
+) -> None:
+    """Record a call the contract refused, in the shape of every other one.
+
+    Same seven fields as `@tool_call`, so `ops.tool_calls` and the
+    dashboard show it beside the calls that ran. `ok=false` and no rows:
+    it did not happen.
+    """
+    logging.getLogger("switchboard_core.tools").warning(
+        json.dumps(
+            {
+                "call_id": call_id,
+                "agent": agent,
+                "tool": tool,
+                "args": args,
+                "duration_ms": 0.0,
+                "result_rows": 0,
+                "ok": False,
+                "rejected_fields": missing,
+            }
+        )
+    )
+
+
+def _widen_from(call_id: str, outcome) -> None:
+    """A resolve that came back unambiguous is an identity for this call.
+
+    Only the single-candidate case counts: while a resolve is still
+    ambiguous the caller has not told us who they are, and treating three
+    candidates as three identities would widen the scope to all of them.
+    """
+    for attr in ("address", "customer"):
+        inner = getattr(outcome, attr, None)
+        if inner is None or getattr(inner, "must_ask", True):
+            continue
+        candidates = getattr(inner, "candidates", []) or []
+        if len(candidates) != 1:
+            continue
+        widen_scope(
+            call_id,
+            canonical_id=getattr(candidates[0], "canonical_id", "") or "",
+            customer_id=getattr(candidates[0], "customer_id", "") or "",
+        )
 
 
 def _must_ask(outcome) -> bool:
@@ -158,7 +227,56 @@ def _build(name: str, fn, call_id: str, handled_by: str):
             # The model filled the arguments wrong. Handing the error back
             # lets it correct itself on the next turn, which is the whole
             # reason tool-arg validation exists in an LLM loop.
-            return f"invalid arguments for {name}: {exc.errors(include_url=False)}"
+            #
+            # Logged like any other failed call. It used to return here
+            # silently: `book_job` was rejected twice on real calls for a
+            # missing field, nothing reached `ops.tool_calls`, and the only
+            # trace was the agent telling the caller "there was an internal
+            # error" - which is also the wrong thing to say. A tool that
+            # refused its arguments is not an outage, it is a question that
+            # has not been answered yet.
+            missing = [
+                ".".join(str(p) for p in error["loc"])
+                for error in exc.errors(include_url=False)
+            ]
+            _log_rejected(call_id, handled_by, name, raw_arguments, missing)
+            return (
+                f"{name} was not called: {', '.join(missing)} "
+                f"{'is' if len(missing) == 1 else 'are'} missing or wrong. "
+                "Ask the caller for what you are missing, or call the tool "
+                "that resolves it, and try again. Do not tell them there "
+                "was an error."
+            )
+
+        scoped = getattr(request, "canonical_id", None) or (
+            getattr(request, "entity_id", None) if name == "search_notes" else None
+        )
+        if (
+            name in SCOPED_BY_ADDRESS
+            and isinstance(scoped, str)
+            and scoped.startswith("cadr_")
+        ):
+            addresses = _scope_addresses.get(call_id, set())
+            customers = _scope_customers.get(call_id, set())
+            if addresses or customers:
+                with _session() as session:
+                    allowed = in_scope(
+                        session,
+                        canonical_id=scoped,
+                        scope_canonical_ids=addresses,
+                        scope_customer_ids=customers,
+                    )
+                if not allowed:
+                    # docs/AGENTS.md, enforced rather than asked for: a
+                    # caller was resolved at their own address, said "that's
+                    # my neighbour" about another street, and was read that
+                    # property's visit history.
+                    return (
+                        "refused: that address belongs to a different "
+                        "customer. Tell the caller you can only discuss "
+                        "their own property, and offer to pass them to a "
+                        "person if they believe it is theirs."
+                    )
 
         if name == "transfer_to_human" and call_id in _pending_question:
             return (
@@ -179,6 +297,7 @@ def _build(name: str, fn, call_id: str, handled_by: str):
             )
 
         if name in RESOLVERS:
+            _widen_from(call_id, outcome)
             if _must_ask(outcome):
                 _pending_question.add(call_id)
             else:
