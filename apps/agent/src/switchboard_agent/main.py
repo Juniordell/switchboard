@@ -84,7 +84,25 @@ TTS_VOICE = "Ashley"
 #: to trust here. This buys the caller a pause between the question and the
 #: address, and it is a genuine trade: every turn now waits this much longer
 #: before the agent starts speaking.
-ENDPOINTING_MIN_DELAY = 1.0
+#: Raised from 1.0 after a production call was cut mid-address: the caller
+#: said "eighty five oh four East Old Mangrove", the turn was committed
+#: during the pause, and the agent searched on the fragment. LiveKit's own
+#: warning names this - "transcript arrives after turn has been committed,
+#: consider raising min_delay to accommodate a slow stt" - and reading
+#: `voice/audio_recognition.py` confirms it: the turn is committed on
+#: timing, the STT's final transcript lands after the commit and is then
+#: discarded because there is no prediction left to attach it to.
+#:
+#: This is the floor, not the wait. Endpointing is `dynamic`, so the
+#: effective delay is learned upward from the caller's own pauses. But it
+#: only learns from pauses where the agent did not speak, so it could not
+#: learn its way out of this one - the agent had already answered.
+#:
+#: The cost is real and paid on every turn: 0.6s more before the agent
+#: starts speaking. Published guidance puts a good p95 under ~1.4s, so
+#: this spends most of that budget. Deliberate: half a second of waiting
+#: is cheaper than reading a caller another property's history.
+ENDPOINTING_MIN_DELAY = 1.6
 
 #: How long a turn the detector is unsure about may wait.
 ENDPOINTING_MAX_DELAY = 4.0
@@ -145,10 +163,17 @@ def _close_call(call_id: str) -> None:
                     # stricter here than the 17 we develop against.
                     "INSERT INTO ops.async_jobs (id, call_id, kind, status) "
                     "SELECT :id, CAST(:c AS varchar), 'extract', 'queued' "
+                    # Any extract job for this call, whatever its status.
+                    # It used to read `status IN ('queued','running')`, which
+                    # is a race the worker wins: the close in _run_call
+                    # queues, the worker finishes in under ten seconds, and
+                    # the shutdown backstop then sees nothing outstanding and
+                    # queues a second one. A real call was extracted twice.
+                    # A transcript is extracted once, ever.
                     "WHERE NOT EXISTS ("
                     "  SELECT 1 FROM ops.async_jobs "
                     "  WHERE call_id = CAST(:c AS varchar) "
-                    "  AND kind = 'extract' AND status IN ('queued','running'))"
+                    "  AND kind = 'extract')"
                 ),
                 {"id": f"job_{uuid.uuid4().hex}", "c": call_id},
             )
@@ -210,7 +235,21 @@ async def entrypoint(ctx: JobContext) -> None:
 async def _run_call(ctx: JobContext, call_id: str) -> None:
 
     session = AgentSession(
-        stt=inference.STT(model=STT_MODEL, language="en"),
+        stt=inference.STT(
+            model=STT_MODEL,
+            language="en",
+            # Deepgram formats spoken numbers where it still has the audio,
+            # which is earlier and better informed than our normaliser can
+            # be from words alone. Their own example is this exact problem:
+            # "one two three southeast main street" -> "123 Southeast Main
+            # Street". A caller on this line says an address in almost every
+            # call, so this is not a marginal setting.
+            #
+            # `numerals` converts digit words on its own; `smart_format`
+            # implies it and adds the address/date/currency shaping. Both
+            # are named so the intent survives a future reader.
+            extra_kwargs={"smart_format": True, "numerals": True},
+        ),
         llm=inference.LLM(model=LLM_MODEL),
         tts=inference.TTS(model=TTS_MODEL, voice=TTS_VOICE),
         stt_context_options={"keyterms": KEYTERMS},
