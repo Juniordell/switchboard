@@ -27,9 +27,13 @@ from switchboard_core.knowledge.warranty_status import (
     evaluate_warranty_status,
 )
 from switchboard_core.tools import (
+    AvailabilityRequest,
     CustomerBalanceRequest,
+    ToolError,
     VisitHistoryRequest,
     WarrantyStatusRequest,
+    find_availability,
+    get_warranty_status,
 )
 
 #: The harness's fixed clock, so a warranty verdict is reproducible.
@@ -262,3 +266,80 @@ class TestASpokenZeroIsAZero:
         # Was 0.714 while "oh" split the run; the point of the fix is that
         # a spoken zero costs nothing.
         assert top.score == pytest.approx(1.0)
+
+
+class TestTheModelHasNoClock:
+    """Captured from the production call of 2026-09-04 12:25. Asked to
+    "schedule for next week", the model filled find_availability with the
+    second week of October 2023 - its training data's idea of now - as
+    naive datetimes. The aware/naive comparison raised TypeError, which
+    T3.1 propagates as a defect; the model called it an internal error and
+    transferred the caller.
+
+    Two things hold now: a naive time is read as Miami rather than
+    rejected, and a range in the past is a domain error that says which
+    day today is, so the model can ask again with a real one.
+    """
+
+    AS_OF = datetime.datetime(2026, 9, 4, 15, 25, tzinfo=datetime.UTC)
+
+    def test_a_past_range_names_today(self, db_session) -> None:
+        """A domain error is a typed result, not an exception - T3.1's
+        contract - so the assertion is on what the model gets handed."""
+        out = find_availability(
+            AvailabilityRequest(start="2023-10-09T08:00:00", end="2023-10-15T18:00:00"),
+            call_id="probe",
+            session=db_session,
+            as_of=self.AS_OF,
+        )
+        assert isinstance(out, ToolError)
+        assert "September 04, 2026" in out.model_dump_json()
+
+    def test_a_naive_time_is_read_as_miami(self) -> None:
+        request = AvailabilityRequest(
+            start="2026-09-08T08:00:00", end="2026-09-08T18:00:00"
+        )
+        assert request.start.tzinfo is not None
+        assert request.start.utcoffset() == datetime.timedelta(hours=-4)  # EDT
+
+    def test_a_future_range_still_works(self, db_session) -> None:
+        out = find_availability(
+            AvailabilityRequest(start="2026-09-08T08:00:00", end="2026-09-12T18:00:00"),
+            call_id="probe",
+            session=db_session,
+            as_of=self.AS_OF,
+        )
+        assert out.result_rows() > 0
+
+
+class TestWarrantyEvidenceIsSpeakable:
+    """Same call. The agent said the coverage was "associated with job
+    number job_92c15112f0524b9f9ce428c420297fea" - the internal id, read
+    out as if it were the number. Hard rule 8 is that the agent speaks the
+    job number; the evidence now carries a `spoken` form and the prompt
+    forbids anything that starts with an id prefix.
+    """
+
+    AS_OF = datetime.datetime(2026, 9, 3, tzinfo=datetime.UTC)
+
+    @pytest.mark.parametrize(
+        ("canonical_id", "level", "prefix"),
+        [
+            ("cadr_7781ff2789ea56ff902b44968cfa1957", 3, "job number "),
+            ("cadr_9323a56f80f958658708adf768c65dd3", 2, "invoice "),
+        ],
+    )
+    def test_spoken_is_a_number_never_an_id(
+        self, db_session, canonical_id: str, level: int, prefix: str
+    ) -> None:
+        out = get_warranty_status(
+            WarrantyStatusRequest(canonical_id=canonical_id),
+            call_id="probe",
+            session=db_session,
+            as_of=self.AS_OF,
+        )
+        assert out.warranty.level == level
+        spoken = out.warranty.evidence.spoken
+        assert spoken.startswith(prefix), spoken
+        for bad in ("job_", "cadr_", "cus_", "nte_"):
+            assert bad not in spoken

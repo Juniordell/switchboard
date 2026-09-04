@@ -11,9 +11,13 @@ apply the refusal rules against `level` and `confidence`.
 import datetime
 
 from pydantic import BaseModel
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-from switchboard_core.knowledge.warranty_status import WarrantyStatusResult
+from switchboard_core.knowledge.warranty_status import (
+    WarrantyEvidence,
+    WarrantyStatusResult,
+)
 from switchboard_core.knowledge.warranty_status import (
     evaluate_warranty_status as _evaluate_warranty_status,
 )
@@ -52,12 +56,30 @@ def get_warranty_status(
     not a request field: an agent filling tool arguments should not be
     inventing timestamps, and the runtime knows the real one.
     """
-    return WarrantyStatusOutput(
-        warranty=_evaluate_warranty_status(
-            session,
-            request.canonical_id,
-            equipment=request.equipment,
-            as_of=as_of,
-        ),
+    warranty = _evaluate_warranty_status(
+        session,
+        request.canonical_id,
+        equipment=request.equipment,
         as_of=as_of,
     )
+    if warranty.evidence is not None:
+        warranty.evidence.spoken = _spoken_form(session, warranty.evidence)
+    return WarrantyStatusOutput(warranty=warranty, as_of=as_of)
+
+
+def _spoken_form(session: Session, evidence: WarrantyEvidence) -> str:
+    """What the agent may say for this evidence. Never the id.
+
+    Hard rule 8: the agent speaks the job *number*. The rule's evidence
+    for a job carries the internal id, because that is what the
+    precedence rule joins on; the number is looked up here, at the one
+    place the result is shaped for speaking.
+    """
+    if evidence.kind == "invoice":
+        return f"invoice {evidence.id}"
+    if evidence.kind == "note":
+        return "the technician's note from that visit"
+    number = session.execute(
+        text("SELECT job_number FROM source.jobs WHERE id = :j"), {"j": evidence.id}
+    ).scalar()
+    return f"job number {number}" if number else "that visit"
