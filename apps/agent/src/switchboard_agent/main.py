@@ -152,6 +152,7 @@ def _close_call(call_id: str) -> None:
                 ),
                 {"id": f"job_{uuid.uuid4().hex}", "c": call_id},
             )
+        logger.info("closed call %s and queued it for extraction", call_id)
     except Exception:
         logger.exception("could not close call %s or queue it for extraction", call_id)
 
@@ -183,12 +184,27 @@ async def entrypoint(ctx: JobContext) -> None:
         attributes={"switchboard.caller": _caller_from(call_id) or "unknown"},
     ):
         _open_call(call_id, _caller_from(call_id), current_traceparent())
+        # The backstop, for the case where _run_call raises: the close
+        # below would be skipped, and a call that happened must still be
+        # closed and queued.
+        #
         # `to_thread`, not a bare lambda: LiveKit awaits what the callback
         # returns, so a sync function here raises `await None` and the whole
-        # shutdown dies before it runs. It also keeps psycopg's blocking work
-        # off the event loop, which is right regardless.
+        # shutdown dies before it runs. It also keeps psycopg's blocking
+        # work off the event loop, which is right regardless.
         ctx.add_shutdown_callback(lambda: asyncio.to_thread(_close_call, call_id))
+
         await _run_call(ctx, call_id)
+
+        # Close here, not only in the shutdown callback. Shutdown runs while
+        # the process is being torn down, and two round trips to a remote
+        # database did not finish before it went away - two production calls
+        # ended with ended_at still null and no extract job queued, and the
+        # second left no log at all to say why. This runs while the process
+        # is unambiguously alive. `_close_call` is idempotent (the UPDATE is
+        # by key, the INSERT is guarded by NOT EXISTS), so the backstop
+        # firing as well costs nothing.
+        await asyncio.to_thread(_close_call, call_id)
 
 
 async def _run_call(ctx: JobContext, call_id: str) -> None:
