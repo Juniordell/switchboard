@@ -45,22 +45,63 @@ call against the call itself. Return JSON:
 Be strict about two things. A claim the transcript does not support is a \
 problem even if it sounds plausible. A promise made to the caller that no \
 tool call carried out is something a human must see, and you should say so \
-in "headline" when it happens."""
+in "headline" when it happens.
+
+`writes` is the audit trail of what the agent actually did - every \
+customer-record write, with the caller's own words that authorised it. A \
+promise covered by a write there was kept: do not report it as unconfirmed \
+because the transcript alone left you unsure."""
 
 
-def _open_promises(facts: dict[str, Any]) -> list[str]:
+def _writes(session: Session, call_id: str) -> list[dict[str, Any]]:
+    """What the agent actually wrote on this call.
+
+    `ops.write_audit` is the record of every customer-record write, with
+    the caller's own words in `spoken_confirmation`. The Reviewer used to
+    be shown the transcript and the Extractor's summary and nothing else,
+    so it was reasoning about whether a booking happened from the words
+    alone - and said a real, audited booking "was not confirmed".
+    """
+    return [
+        dict(row)
+        for row in session.execute(
+            text(
+                "SELECT tool, action, job_id, new_values, spoken_confirmation "
+                "FROM ops.write_audit WHERE call_id = :c ORDER BY created_at"
+            ),
+            {"c": call_id},
+        )
+        .mappings()
+        .all()
+    ]
+
+
+def _open_promises(facts: dict[str, Any], writes: list[dict[str, Any]]) -> list[str]:
     """Promises with nothing written behind them.
 
-    Compared as whole strings deliberately: a fuzzy match here would decide
-    on the office's behalf that a promise was kept, which is exactly the
-    call a human is being asked to make.
+    `changed` is the Extractor's own list, compared as whole strings
+    deliberately: a fuzzy match would decide on the office's behalf that a
+    promise was kept, which is exactly the call a human is being asked to
+    make.
+
+    But a promise is only *open* if the call wrote nothing at all. A real
+    booking - `book_job`, audited, a row in `ops.booked_jobs` - was flagged
+    as unbacked because the Extractor phrased `changed` differently from
+    `promised`, and a queue that cries wolf on the calls that went right is
+    a queue the office stops reading.
+
+    The limitation is deliberate and worth naming: when a call both wrote
+    something and promised something else, this cannot tell which promise
+    the write covers. That is the judgement the model is now given the
+    writes to make, and the reason its `problems` still reach the queue.
     """
     changed = {c.strip().lower() for c in facts.get("changed") or []}
-    return [
+    unmatched = [
         promise
         for promise in facts.get("promised") or []
         if promise.strip().lower() not in changed
     ]
+    return [] if writes else unmatched
 
 
 def review(
@@ -87,16 +128,24 @@ def review(
         .all()
     )
 
+    writes = _writes(session, call_id)
+
     verdict = ask_for_json(
         SYSTEM,
         json.dumps(
-            {"summary": facts, "transcript": [dict(t) for t in turns]}, default=str
+            {
+                "summary": facts,
+                "transcript": [dict(t) for t in turns],
+                # What the agent actually did, not what it said it did.
+                "writes": writes,
+            },
+            default=str,
         ),
         **model_kwargs,
     )
 
     confidence = float(verdict.get("confidence", 0.0))
-    promises = _open_promises(facts)
+    promises = _open_promises(facts, writes)
 
     reasons = []
     if confidence < threshold:

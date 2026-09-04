@@ -14,12 +14,15 @@ behaviour those defects produced is measured separately in
 """
 
 import datetime
+from typing import ClassVar
 
 import pytest
 from pydantic import ValidationError
 from sqlalchemy import text
 
+from switchboard_api.async_agents.reviewer import _open_promises, _writes
 from switchboard_core.knowledge.address_normalize import normalize_street
+from switchboard_core.knowledge.availability import DEFAULT_LIMIT
 from switchboard_core.knowledge.resolve_address import resolve_address
 from switchboard_core.knowledge.resolve_customer import resolve_customer
 from switchboard_core.knowledge.warranty_status import (
@@ -343,3 +346,59 @@ class TestWarrantyEvidenceIsSpeakable:
         assert spoken.startswith(prefix), spoken
         for bad in ("job_", "cadr_", "cus_", "nte_"):
             assert bad not in spoken
+
+
+class TestAKeptPromiseIsNotQueuedAsBroken:
+    """Captured from the production call of 2026-09-04 15:50, the first
+    that booked anything. The agent found times, the caller said
+    "September seven 8 AM to 10 AM", `book_job` wrote the row and
+    `ops.write_audit` recorded the words that authorised it - and the
+    Reviewer filed it as "1 promise(s) with no write behind them".
+
+    It was comparing the Extractor's `promised` list against its own
+    `changed` list and never looking at what the agent actually did. A
+    review queue that flags the calls that went right is a queue the
+    office stops reading.
+    """
+
+    FACTS: ClassVar[dict[str, list[str]]] = {
+        "promised": ["Your appointment has been scheduled for September 7th."],
+        "changed": ["booked a visit"],  # phrased differently on purpose
+    }
+
+    def test_a_promise_with_an_audited_write_is_not_open(self) -> None:
+        writes = [{"tool": "book_job", "spoken_confirmation": "September seven 8 AM"}]
+        assert _open_promises(self.FACTS, writes) == []
+
+    def test_a_promise_on_a_call_that_wrote_nothing_still_is(self) -> None:
+        """The guard must not have turned the check off."""
+        assert _open_promises(self.FACTS, []) == self.FACTS["promised"]
+
+    def test_the_reviewer_is_handed_the_writes(self, db_session) -> None:
+        """`_writes` reads the audit trail, not the transcript."""
+        rows = _writes(db_session, "call_that_never_existed")
+        assert rows == []
+
+
+class TestSlotsAreOfferedNotListed:
+    """Same call. `find_availability` returned ten slots and the agent read
+    them aloud: 26.6 s of speaking, measured in Langfuse as the single
+    longest thing on the call - longer than every LLM call in it together.
+
+    The tool's own docstring says a caller is offered times, not a roster.
+    Ten contradicted it.
+    """
+
+    def test_the_default_fits_a_phone_call(self) -> None:
+        assert DEFAULT_LIMIT == 3
+
+    def test_a_caller_who_wants_more_can_still_ask(self, db_session) -> None:
+        out = find_availability(
+            AvailabilityRequest(
+                start="2026-09-08T08:00:00", end="2026-09-12T18:00:00", limit=8
+            ),
+            call_id="probe",
+            session=db_session,
+            as_of=datetime.datetime(2026, 9, 4, 15, 25, tzinfo=datetime.UTC),
+        )
+        assert out.result_rows() > 3
