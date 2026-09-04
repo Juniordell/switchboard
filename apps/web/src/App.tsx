@@ -158,7 +158,7 @@ function LiveFeed({ events, last, connected }: Feed) {
         </span>
       </div>
       <p className="mt-1.5 truncate font-mono text-[13px] text-ink">
-        {last ?? (connected ? "waiting for a tool call" : "/api/events")}
+        {last ?? (connected ? "idle" : "not connected")}
       </p>
     </div>
   );

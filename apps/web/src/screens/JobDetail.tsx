@@ -50,6 +50,22 @@ const CONFIDENCE_BARS: Record<string, 0 | 1 | 2 | 3> = {
 function WarrantyCard({ warranty }: { warranty: Warranty }) {
   const tone = COVERAGE_TONES[warranty.covered] ?? "neutral";
   const uncertain = warranty.level >= 4;
+  if (uncertain) {
+    // Levels 4-6 have no single row behind them and are spoken as
+    // uncertain. Two cards and an empty meter gave "we do not know" the
+    // most prominent block on the page; one line says it honestly.
+    return (
+      <Card className="flex flex-wrap items-center gap-x-3 gap-y-1 border-l-2 border-l-warn px-5 py-3.5">
+        <Dot tone={tone} />
+        <span className="font-semibold">{warranty.covered.replace("_", " ")}</span>
+        <span className="font-mono text-[13px] text-ink-mid">level {warranty.level}</span>
+        <span className="text-ink-mid">{warranty.basis}</span>
+        <span className="basis-full text-[13px] text-warn">
+          Spoken as uncertain and offered for a human to check. Not settled.
+        </span>
+      </Card>
+    );
+  }
   return (
     <div className="grid gap-4 lg:grid-cols-2">
       <Card className="p-5">

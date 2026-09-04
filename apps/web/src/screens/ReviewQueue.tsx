@@ -9,7 +9,7 @@
 
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
-import { api, stamp, type ReviewItem } from "../api";
+import { api, callerOf, stamp, type ReviewItem } from "../api";
 import {
   Card,
   Label,
@@ -81,7 +81,7 @@ function Item({ item }: { item: ReviewItem }) {
                 className="text-brand hover:text-brand-hover hover:underline"
                 to={`/calls/${encodeURIComponent(item.call_id)}`}
               >
-                {item.call_id}
+                {callerOf(item.call_id)}
               </Link>
             </>
           )}

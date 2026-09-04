@@ -162,6 +162,16 @@ export function localDay(now = new Date()): string {
   return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
 }
 
+/**
+ * The caller's number out of a call id. The dispatch rule names rooms
+ * `call-_<E.164>_<random>`, so the number is the middle segment; anything
+ * else is shown as is.
+ */
+export function callerOf(callId: string): string {
+  const parts = callId.split("_");
+  return parts.length >= 3 && parts[1].startsWith("+") ? parts[1] : callId;
+}
+
 export function stamp(iso: string): string {
   return new Date(iso).toLocaleString("en-US", {
     month: "short",

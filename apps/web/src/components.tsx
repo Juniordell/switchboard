@@ -46,7 +46,7 @@ export function Screen({
             <span className="font-mono text-[13px] text-ink-lo">{meta}</span>
           )}
           {stats && (
-            <div className="ml-auto flex flex-wrap items-baseline gap-x-6">
+            <div className="ml-auto flex flex-wrap items-end gap-x-8">
               {stats}
             </div>
           )}
@@ -58,11 +58,29 @@ export function Screen({
   );
 }
 
-/** A number and what it counts, for the right-hand side of a header. */
-export function Stat({ value, label }: { value: ReactNode; label: string }) {
+/**
+ * A number and what it counts, for the right-hand side of a header.
+ *
+ * The number is large and the label sits under it: these are the most
+ * important figures on the screen, and set in the same 11px as a column
+ * header they read as fine print - which is how they shipped first.
+ */
+export function Stat({
+  value,
+  label,
+  tone,
+}: {
+  value: ReactNode;
+  label: string;
+  tone?: Tone;
+}) {
+  const colour =
+    tone === "warn" ? "text-warn" : tone === "write" ? "text-write" : "";
   return (
-    <span className="flex items-baseline gap-2">
-      <span className="font-mono text-[13px] font-medium tabular-nums">
+    <span className="flex flex-col items-end gap-1">
+      <span
+        className={`font-mono text-[22px] leading-none font-semibold tabular-nums ${colour}`}
+      >
         {value}
       </span>
       <Label>{label}</Label>

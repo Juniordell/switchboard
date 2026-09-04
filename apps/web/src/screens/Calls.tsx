@@ -1,11 +1,12 @@
 /** The call log: every call, and how much the agent did on it. */
 
 import { useQuery } from "@tanstack/react-query";
-import { Link } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 import { api, elapsed, stamp } from "../api";
-import { Dot, Nothing, Screen, Stat, Table } from "../components";
+import { Dot, Nothing, Pill, Screen, Stat, Table } from "../components";
 
 export function Calls() {
+  const navigate = useNavigate();
   const { data, isPending, error } = useQuery({
     queryKey: ["calls"],
     queryFn: api.calls,
@@ -24,7 +25,7 @@ export function Calls() {
       stats={
         <>
           <Stat value={data.count} label="Recorded" />
-          <Stat value={live} label="In progress" />
+          <Stat value={live} label="In progress" tone={live ? "warn" : undefined} />
           <Stat value={tools} label="Tool calls" />
         </>
       }
@@ -35,32 +36,33 @@ export function Calls() {
           why="ops.calls is empty. The agent writes a row when a call starts, so one inbound call to the number on the dispatch rule fills this."
         />
       ) : (
+        <div className="max-w-[1100px]">
         <Table
           fixed
           head={[
             { label: "Started", className: "w-[172px]" },
-            { label: "Caller", className: "w-[200px]" },
-            "Last agent",
+            "Caller",
+            { label: "Last agent", className: "w-[140px]" },
             { label: "Tools", className: "w-[84px] text-right" },
             { label: "Ended", className: "w-[172px]" },
             { label: "Len", className: "w-[76px] text-right" },
           ]}
         >
           {data.items.map((call) => (
-            <tr key={call.call_id} className="hover:bg-hover">
+            <tr
+              key={call.call_id}
+              className="cursor-pointer hover:bg-hover"
+              onClick={() => navigate(`/calls/${encodeURIComponent(call.call_id)}`)}
+            >
               <td className="px-5 py-2.5 font-mono text-[13px] tabular-nums text-ink-mid">
                 {stamp(call.started_at)}
               </td>
-              <td className="px-5 py-2.5">
-                <Link
-                  className="font-mono text-[13px] font-medium text-brand hover:text-brand-hover hover:underline"
-                  to={`/calls/${encodeURIComponent(call.call_id)}`}
-                >
-                  {call.caller ?? "unknown"}
-                </Link>
+              <td className="px-5 py-2.5 font-mono text-[13px] font-medium text-brand">
+                {call.caller ?? "unknown"}
+                <span className="ml-2 text-ink-lo">›</span>
               </td>
-              <td className="truncate px-5 py-2.5 text-ink-mid">
-                {call.last_agent ?? "—"}
+              <td className="px-5 py-2.5">
+                {call.last_agent ? <Pill tone="brand">{call.last_agent}</Pill> : "—"}
               </td>
               <td className="px-5 py-2.5 text-right font-mono text-[13px] tabular-nums">
                 {call.tool_calls}
@@ -83,6 +85,7 @@ export function Calls() {
             </tr>
           ))}
         </Table>
+        </div>
       )}
     </Screen>
   );

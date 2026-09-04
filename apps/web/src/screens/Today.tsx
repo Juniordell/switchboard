@@ -148,7 +148,11 @@ export function Today() {
         <>
           <Stat value={work.length} label="Jobs" />
           <Stat value={roster.length} label="Techs" />
-          <Stat value={unassigned.length} label="Unassigned" />
+          <Stat
+            value={unassigned.length}
+            label="Unassigned"
+            tone={unassigned.length ? "warn" : undefined}
+          />
           <Stat value={booked} label="Booked by agent" />
           {cancelled.length > 0 && (
             <Stat value={cancelled.length} label="Cancelled" />
@@ -162,7 +166,7 @@ export function Today() {
           why={`Nothing in source.jobs or the ops overlay starts on ${today}. Stale scheduled jobs — a start date already past — are excluded by docs/SCOPE.md's rule and are not counted here.`}
         />
       ) : (
-        <div className="flex flex-col gap-8">
+        <div className="flex max-w-[1180px] flex-col gap-8">
           {unassigned.length > 0 && (
             <Section
               label="Needs a tech"

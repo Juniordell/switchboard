@@ -47,12 +47,11 @@ export function Jobs() {
           fixed
           head={[
             { label: "Scheduled", className: "w-[172px]" },
-            { label: "Job", className: "w-[96px]" },
+            { label: "Job", className: "w-[150px]" },
             { label: "Customer", className: "w-[200px]" },
             "Address",
             { label: "Service", className: "w-[200px]" },
             { label: "Status", className: "w-[176px]" },
-            { label: "Source", className: "w-[104px]" },
           ]}
         >
           {data.items.map((job) => (
@@ -61,12 +60,18 @@ export function Jobs() {
                 {stamp(job.scheduled_start)}
               </td>
               <td className="px-5 py-2.5">
-                <Link
-                  className="font-mono text-[13px] font-medium text-brand hover:text-brand-hover hover:underline"
-                  to={`/jobs/${job.job_id}`}
-                >
-                  {job.job_number ?? job.job_id.slice(0, 8)}
-                </Link>
+                <span className="flex items-center gap-2">
+                  <Link
+                    className="font-mono text-[13px] font-medium text-brand hover:text-brand-hover hover:underline"
+                    to={`/jobs/${job.job_id}`}
+                  >
+                    {job.job_number ?? job.job_id.slice(0, 8)}
+                  </Link>
+                  {/* Provenance only when it is news: a column reading
+                      "loaded" on every row said nothing fifty times. */}
+                  {job.agent_booked && <Pill tone="write">agent</Pill>}
+                  {job.rescheduled && <Pill tone="warn">moved</Pill>}
+                </span>
               </td>
               <td className="truncate px-5 py-2.5" title={job.customer}>
                 {job.customer ?? job.customer_id}
@@ -88,15 +93,6 @@ export function Jobs() {
                   status={job.work_status}
                   tone={workStatusTone(job.work_status)}
                 />
-              </td>
-              <td className="px-5 py-2.5">
-                {job.agent_booked ? (
-                  <Pill tone="write">agent</Pill>
-                ) : job.rescheduled ? (
-                  <Pill tone="warn">moved</Pill>
-                ) : (
-                  <span className="text-[13px] text-ink-lo">loaded</span>
-                )}
               </td>
             </tr>
           ))}
