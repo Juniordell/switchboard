@@ -85,7 +85,9 @@ class TestLevel2WarrantyLineItem:
 
     def test_covered_yes_historical_from_the_invoice(self, db_session) -> None:
         result = evaluate_warranty_status(db_session, self.CANONICAL_ID, as_of=AS_OF)
-        assert result.covered is WarrantyCoverage.YES
+        # Not YES. A real call turned a YES here into "it's under warranty",
+        # present tense, from a 2023 invoice - see WarrantyCoverage.
+        assert result.covered is WarrantyCoverage.WAS_COVERED
         assert result.level == 2
         assert result.confidence is WarrantyConfidence.HIGH_HISTORICAL
         assert result.evidence.kind == "invoice"
@@ -245,6 +247,7 @@ class TestStructuralGuarantees:
         assert not isinstance(result.covered, bool)
         assert result.covered in {
             WarrantyCoverage.YES,
+            WarrantyCoverage.WAS_COVERED,
             WarrantyCoverage.NO,
             WarrantyCoverage.UNKNOWN,
         }
