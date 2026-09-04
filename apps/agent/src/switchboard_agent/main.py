@@ -137,9 +137,17 @@ def _close_call(call_id: str) -> None:
             )
             session.execute(
                 text(
+                    # `:c` appears twice, and Postgres deduces a different
+                    # type for each - varchar from the INSERT target, text
+                    # from the comparison - then refuses the statement as
+                    # AmbiguousParameter. The cast pins it. Same fix as the
+                    # customer_id cast in T3.2; Postgres 18 on Neon is
+                    # stricter here than the 17 we develop against.
                     "INSERT INTO ops.async_jobs (id, call_id, kind, status) "
-                    "SELECT :id, :c, 'extract', 'queued' WHERE NOT EXISTS ("
-                    "  SELECT 1 FROM ops.async_jobs WHERE call_id = :c "
+                    "SELECT :id, CAST(:c AS varchar), 'extract', 'queued' "
+                    "WHERE NOT EXISTS ("
+                    "  SELECT 1 FROM ops.async_jobs "
+                    "  WHERE call_id = CAST(:c AS varchar) "
                     "  AND kind = 'extract' AND status IN ('queued','running'))"
                 ),
                 {"id": f"job_{uuid.uuid4().hex}", "c": call_id},
