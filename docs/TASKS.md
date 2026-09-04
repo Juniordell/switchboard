@@ -365,7 +365,21 @@ Work one at a time. Do not skip ahead. Each task ends with `ruff check` and
       Eight real calls so far, each of which changed something (see
       `docs/DECISIONS.md` 2026-09-04). Stays open until two consecutive
       calls need no fix.
-- [ ] T9.3 README with the three deliverables, ARCHITECTURE final pass
+- [x] T9.3 README with the three deliverables, ARCHITECTURE final pass
+      `README.md` names the three, each with what proves it rather than a
+      claim, and carries the four data traps that shaped the most code, the
+      harness summary and the known limitations. Every figure in it was
+      measured against the live database before it was written — two were
+      wrong from memory (eight real calls, not nine; fourteen
+      `expects_no_tool_call` cases, not fifteen) and were corrected.
+      `ARCHITECTURE.md` gains "Where it runs": the three hosts, why the
+      Dockerfile is at the root, why the direct Neon endpoint rather than
+      the pooler, and the dispatch-rule failure that presents as silence.
 - [ ] T9.4 Screen recording of the full demo as a fallback
-- [ ] T9.5 Stale scheduled jobs get their own bucket in the dashboard
-      Carried from T6.3, which shipped the exclusion without the bucket.
+- [x] T9.5 Stale scheduled jobs get their own bucket in the dashboard
+      `GET /api/stale` and a screen of its own with a rail badge, because 55
+      forgotten jobs — the oldest waiting 181 days — is a queue somebody has
+      to work through, not a footnote on another screen. Oldest first, and
+      anything over 90 days is called out. `in progress` is deliberately
+      excluded: a job somebody started and never closed is a different
+      problem, and lumping the two would hide both.
