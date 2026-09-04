@@ -15,9 +15,10 @@ docs/
 # Shared by every build that uses the repository root as its context -
 # the agent image AND `docker compose build api`. So this excludes only
 # what NEITHER image needs: the customer's data, the frontend, test
-# material. `apps/api/src` is deliberately not here, because the API image
-# is built from this same context and would lose its own source.
-apps/web
+# material. `apps/api/src` and `apps/web` are deliberately not here: the
+# API image is built from this same context, and it builds the frontend
+# into itself. `**/node_modules` and `**/dist` below keep the heavy,
+# regenerable parts of apps/web out regardless.
 evals
 infra
 scripts
