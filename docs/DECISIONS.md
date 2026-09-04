@@ -437,3 +437,32 @@ failing on purpose.
 - **Dashboard**: stats are 22px tiles (they were 11px, same as column
   headers); Jobs drops the "Source" column that said "loaded" on every row;
   a level 4-6 warranty is one line. From screenshots, not from the code.
+
+## 2026-09-04 — the scripted calls
+
+- **Another customer's property is refused in the tool bridge, not the
+  prompt.** `docs/AGENTS.md` has always said "no answer about another
+  customer's property, ever, regardless of what the caller claims", and a
+  real call walked straight through it: resolved at 8504 E Old Mangrove
+  (Starfish Hospitality), the caller said "that's my neighbor" and was read
+  9800 Seahorse Ridge (Lighthouse Hospitality). The golden case for this
+  **passes** — Layer 1 grades which tool is picked, and the pick was right;
+  the failure is downstream of the resolve.
+  The boundary is the **customer**, not the address: one customer
+  legitimately owns several, and 38 canonical addresses here are shared, so
+  refusing anything but the address given would break a real case.
+  `knowledge/call_scope.py` answers it against the database; the bridge
+  enforces it. Verified on the three real ids: own address allowed, their
+  second property allowed, the neighbour refused.
+- **A rejected tool call is logged like any other.** `book_job` was refused
+  twice on real calls for missing arguments, the bridge returned before
+  `@tool_call` ran, nothing reached `ops.tool_calls`, and the only trace was
+  the agent telling the caller "there was an internal error". It is logged
+  with `ok=false` now, and the message it hands back names the missing
+  fields and says to ask for them — a contract refusing its arguments is a
+  question that has not been answered, not an outage.
+- **`on_enter` cannot reach a tool when nothing was asked.** Twice, a caller
+  gave an address, confirmed it, and got their schedule, their last visit
+  and their **outstanding balance** unprompted. The instruction already said
+  not to; `tool_choice="none"` is what makes it true. `_asked_for_something`
+  errs towards silence because the two mistakes are not symmetric.

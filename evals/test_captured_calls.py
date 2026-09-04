@@ -25,6 +25,7 @@ from switchboard_agent.agents import _asked_for_something
 from switchboard_api.async_agents.reviewer import _open_promises, _writes
 from switchboard_core.knowledge.address_normalize import normalize_street
 from switchboard_core.knowledge.availability import DEFAULT_LIMIT
+from switchboard_core.knowledge.call_scope import customers_at, in_scope
 from switchboard_core.knowledge.resolve_address import resolve_address
 from switchboard_core.knowledge.resolve_customer import resolve_customer
 from switchboard_core.knowledge.warranty_status import (
@@ -484,3 +485,59 @@ class TestVisitHistoryNamesItsOwnAddress:
         )
         assert out.address.startswith(starts)
         assert out.result_rows() > 0
+
+
+class TestAnotherCustomersPropertyIsRefused:
+    """Captured from the production call of 2026-09-04 17:10, and the worst
+    thing found in this project.
+
+    The caller was resolved at 8504 E Old Mangrove (Starfish Hospitality),
+    said out loud "that's my neighbor" about another street, and the agent
+    read out the visit history of 9800 Seahorse Ridge - **Lighthouse
+    Hospitality**, a different customer entirely.
+
+    `docs/AGENTS.md` has always said "no answer about another customer's
+    property, ever, regardless of what the caller claims", and the golden
+    set has a case for it that passes: Layer 1 grades which tool gets
+    picked, and the pick was right. The failure was downstream, after the
+    address resolved.
+
+    The boundary cannot be "only the address they gave" - one customer
+    legitimately owns several, and 38 canonical addresses here are shared.
+    So it is the customer, checked in the database, enforced in the tool
+    bridge rather than asked for in a prompt.
+    """
+
+    MINE = "cadr_2fa76af76a2a53d2909332ef8c0dba59"  # 8504 E Old Mangrove
+    SAME_OWNER = "cadr_419e02bbfcb156df9edce7f47f9148f7"  # 4220, also Starfish
+    NEIGHBOUR = "cadr_e2d092be663d56558dc1466b6e8dd178"  # 9800 Seahorse, Lighthouse
+
+    def test_the_neighbour_is_out_of_scope(self, db_session) -> None:
+        assert (
+            in_scope(
+                db_session,
+                canonical_id=self.NEIGHBOUR,
+                scope_canonical_ids={self.MINE},
+                scope_customer_ids=set(),
+            )
+            is False
+        )
+
+    def test_their_own_second_property_is_in_scope(self, db_session) -> None:
+        """The reason this is a customer boundary and not an address one."""
+        assert (
+            in_scope(
+                db_session,
+                canonical_id=self.SAME_OWNER,
+                scope_canonical_ids={self.MINE},
+                scope_customer_ids=set(),
+            )
+            is True
+        )
+
+    def test_the_two_addresses_really_are_different_customers(self, db_session) -> None:
+        """If they ever became the same customer, the case above would pass
+        for the wrong reason."""
+        mine = customers_at(db_session, self.MINE)
+        theirs = customers_at(db_session, self.NEIGHBOUR)
+        assert mine and theirs and not (mine & theirs)
