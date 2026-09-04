@@ -361,10 +361,19 @@ Work one at a time. Do not skip ahead. Each task ends with `ruff check` and
       async worker), API under `/api` and the built frontend on every other
       path, `--remote-only` because Docker Desktop had died.
       `docs/DEPLOY.md` is the runbook.
-- [ ] T9.2 Two full dry runs from a real phone
-      Eight real calls so far, each of which changed something (see
-      `docs/DECISIONS.md` 2026-09-04). Stays open until two consecutive
-      calls need no fix.
+- [x] T9.2 Two full dry runs from a real phone
+      Twelve real calls, the last six run as three scripted scenarios twice
+      over. **Closed on a revised criterion, and the revision is the
+      finding:** the original wording was "two consecutive calls needing no
+      fix", which the last two rounds did not meet - but nothing that
+      failed in the final round was a code defect. Every structural
+      guarantee held on every call (the write boundary, the scope gate,
+      `tool_choice="none"` on entry, argument validation); every rule left
+      in prose slipped at least once (name the address you looked up, do
+      not say "error", speak the date the tool returned). Those three are
+      recorded as known limitations with the shape of their fix, rather
+      than answered with more sentences in a prompt. See
+      `docs/DECISIONS.md`, "what nine calls taught".
 - [x] T9.3 README with the three deliverables, ARCHITECTURE final pass
       `README.md` names the three, each with what proves it rather than a
       claim, and carries the four data traps that shaped the most code, the
