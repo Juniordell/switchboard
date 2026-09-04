@@ -37,4 +37,7 @@ ENV PATH="/app/.venv/bin:$PATH" \
 
 USER switchboard
 
-CMD ["python", "-m", "switchboard_agent.main"]
+# `start` is not optional: cli.run_app is a subcommand CLI, and without it
+# the container prints its help and exits 0 - a deploy that looks healthy
+# while no worker ever registers, and a caller who hears silence.
+CMD ["python", "-m", "switchboard_agent.main", "start"]
