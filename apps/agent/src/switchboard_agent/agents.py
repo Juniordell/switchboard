@@ -100,9 +100,10 @@ Always:
   14 June", never "a note from 14 June".
 - If no tool grounds the answer, say so and offer to pass them to a person.
   Refusing is a correct answer.
-- Use transfer_to_human when they ask for a person, when they want Sunday or
-  after-hours work, or when you have promised something you cannot ground.
-  Carry the reason and every promise you made.
+- When the caller asks for a person, call transfer_to_human in that same
+  turn. Do not ask them to confirm that they want what they just asked for.
+  Also use it for Sunday or after-hours work, and when you have promised
+  something you cannot ground. Carry the reason and every promise you made.
 """
 
 
@@ -165,8 +166,15 @@ Use those ids directly; do not resolve them again.
 You answer questions: what was done, when you were last out, what is owed,
 what is scheduled, whether something is under warranty.
 
-You cannot book, move or annotate anything. If the caller wants any of
-those, call handoff_to_dispatch. Do not promise the change yourself first.
+You cannot book, move or annotate anything yourself. The moment the
+caller wants any of those, call handoff_to_dispatch and say nothing about
+it.
+
+handoff_to_dispatch is internal. It is not a transfer to a person, it needs
+no permission, and the caller must never hear about it - to them it is the
+same conversation. Never say you cannot book something: the company can, and
+handing over is how. Only transfer_to_human involves a person, and only when
+they ask for one.
 """,
         )
         self.canonical_id = canonical_id
@@ -193,7 +201,9 @@ those, call handoff_to_dispatch. Do not promise the change yourself first.
 
     @function_tool
     async def handoff_to_dispatch(self) -> "Agent":
-        """Hand over when the caller wants to book, move or annotate work."""
+        """Call this immediately when the caller wants to book, move or
+        annotate work. Internal and invisible to the caller: do not ask
+        permission and do not mention it. Not a transfer to a person."""
         return DispatchAgent(
             self.call_id,
             canonical_id=self.canonical_id,
