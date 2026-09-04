@@ -1,1 +1,76 @@
 @import "tailwindcss";
+
+/**
+ * The palette, one place.
+ *
+ * Warm paper rather than pure white: this screen is open all day beside a
+ * phone, and #FAF9F7 under #1C1B19 is the pair that stays legible at 14px
+ * for eight hours. Everything is a token so a column of numbers and a
+ * status dot cannot drift apart.
+ */
+@theme {
+  --color-canvas: #faf9f7;
+  --color-surface: #ffffff;
+  --color-sunken: #f4f2ef;
+  --color-hover: #f6f5f2;
+  --color-line: #e8e5e0;
+  --color-line-strong: #d6d2cb;
+  --color-ink: #1c1b19;
+  --color-ink-mid: #6b6862;
+  --color-ink-lo: #9b978f;
+  --color-brand: #4f46e5;
+  --color-brand-hover: #4338ca;
+  --color-wash: #eef0fe;
+  --color-wash-line: #dfe3fc;
+  --color-ok: #15803d;
+  --color-warn: #b45309;
+  --color-write: #b91c1c;
+  --color-write-wash: #fdf5f5;
+  --color-write-line: #ebc9c9;
+
+  --font-sans: "General Sans", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+
+  --shadow-card:
+    0 1px 2px rgba(28, 27, 25, 0.04), 0 1px 3px rgba(28, 27, 25, 0.06);
+}
+
+@layer base {
+  body {
+    background: var(--color-canvas);
+    color: var(--color-ink);
+    font-family: var(--font-sans);
+    font-size: 14px;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  ::selection {
+    background: var(--color-wash);
+  }
+
+  /* Long tables are the normal case here, so the scrollbar is furniture. */
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: var(--color-line-strong);
+    border: 3px solid transparent;
+    background-clip: padding-box;
+    border-radius: 8px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+}
+
+@keyframes pulse-dot {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.2;
+  }
+}

@@ -116,6 +116,34 @@ export function clockTime(iso: string): string {
   });
 }
 
+/**
+ * A `YYYY-MM-DD` day, spelled out.
+ *
+ * Built from the parts rather than `new Date(day)`: that parses a bare
+ * date as UTC midnight, which in Austin renders as the day before.
+ */
+export function dayLabel(day: string): string {
+  const [year, month, date] = day.split("-").map(Number);
+  return new Date(year, month - 1, date).toLocaleDateString("en-US", {
+    weekday: "short",
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+  });
+}
+
+/** How long a call ran, as m:ss. Null while it is still running. */
+export function elapsed(
+  startIso: string,
+  endIso: string | null,
+): string | null {
+  if (!endIso) return null;
+  const start = new Date(startIso).getTime();
+  const end = new Date(endIso).getTime();
+  const seconds = Math.max(0, Math.round((end - start) / 1000));
+  return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`;
+}
+
 export function stamp(iso: string): string {
   return new Date(iso).toLocaleString("en-US", {
     month: "short",

@@ -381,3 +381,21 @@ failing on purpose.
   "4120 Bowline Isle Rd" (I invented it; it is 416 S Coral Ridge Pkwy),
   and `docs/HARNESS.md`'s Layer 1 example used "89 Harborlight Shores",
   which does not exist in `knowledge.canonical_addresses`.
+
+## T9.x - the dashboard restyle
+
+- The web UI follows the **`Switchboard v3`** mockup (warm light theme) rather
+  than v1/v2 (dark). All three had the same structure; v3 is the newest and
+  the right register for a screen an office manager keeps open all day beside
+  a phone. Tokens live in `apps/web/src/index.css` as a Tailwind 4 `@theme`
+  block, so the palette is one place, not scattered through class names.
+- Two webfonts (General Sans, JetBrains Mono) load from Fontshare and Google
+  Fonts, each behind a system fallback stack, rather than being self-hosted.
+  Lives in `apps/web/index.html`. Worth revisiting if an offline-capable or
+  egress-restricted deploy ever matters.
+- The mockups' live-call screen, promise columns, READ/WRITE chips and
+  approve/reject buttons were **deliberately not built**: there is no live-call
+  API, no tool `kind` on `ops.tool_calls` (inferring it from the tool name
+  would be a guess about hard rule 4), and no mutation endpoint. Buttons that
+  do nothing are worse than no buttons - the same rule as T6.3's "nothing
+  dressed up as a feature".
