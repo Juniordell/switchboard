@@ -17,9 +17,11 @@ import datetime
 from typing import ClassVar
 
 import pytest
+from livekit.agents import ChatContext
 from pydantic import ValidationError
 from sqlalchemy import text
 
+from switchboard_agent.agents import _asked_for_something
 from switchboard_api.async_agents.reviewer import _open_promises, _writes
 from switchboard_core.knowledge.address_normalize import normalize_street
 from switchboard_core.knowledge.availability import DEFAULT_LIMIT
@@ -36,11 +38,19 @@ from switchboard_core.tools import (
     VisitHistoryRequest,
     WarrantyStatusRequest,
     find_availability,
+    get_visit_history,
     get_warranty_status,
 )
 
 #: The harness's fixed clock, so a warranty verdict is reproducible.
 AS_OF = datetime.datetime(2026, 9, 3, tzinfo=datetime.UTC)
+
+
+def _ctx(said: str) -> ChatContext:
+    """One caller turn, which is what `on_enter` looks back at."""
+    ctx = ChatContext.empty()
+    ctx.add_message(role="user", content=said)
+    return ctx
 
 
 class TestSpokenHouseNumbersConcatenate:
@@ -402,3 +412,75 @@ class TestSlotsAreOfferedNotListed:
             as_of=datetime.datetime(2026, 9, 4, 15, 25, tzinfo=datetime.UTC),
         )
         assert out.result_rows() > 3
+
+
+class TestNothingIsVolunteered:
+    """Captured from the three scripted calls of 2026-09-04 16:28-16:35.
+
+    Twice the caller gave an address, confirmed it, and the agent reported
+    their schedule, their last visit **and their outstanding balance** -
+    three tool calls, no question asked. It is both the slowest thing the
+    agent does and the one place it reads out money to someone who has so
+    far only said a street name.
+
+    `on_enter` said "if they have not asked anything yet, ask what you can
+    help with" and the model answered three questions anyway, so the guard
+    is `tool_choice="none"` rather than another sentence: with no question
+    on the table it cannot reach a tool at all.
+
+    The two mistakes are not symmetric, and the cases below are the real
+    utterances from those calls: a disclosure nobody asked for against one
+    wasted turn.
+    """
+
+    @pytest.mark.parametrize(
+        "said",
+        [
+            "Yes.",
+            "The first one.",
+            "At one sixty seven Bay Banyan Road.",
+            "I'm at thirty eight eighteen Jacaranda Bluff Trail",
+        ],
+    )
+    def test_giving_an_address_is_not_a_question(self, said: str) -> None:
+        assert _asked_for_something(_ctx(said)) is False
+
+    @pytest.mark.parametrize(
+        "said",
+        [
+            "when were you last out here",
+            "Am I covered on the AC at 103 Bowline High Road",
+            "What did we find last time about the condenser",
+            "I want to schedule another meeting for next week",
+            "what do I owe you guys",
+        ],
+    )
+    def test_a_real_request_still_gets_answered(self, said: str) -> None:
+        assert _asked_for_something(_ctx(said)) is True
+
+
+class TestVisitHistoryNamesItsOwnAddress:
+    """Same set of calls. Asked about one street, the agent answered "At
+    Seahorse Ridge, services included..." while reporting a different
+    address it had resolved earlier. Nothing leaked - both belong to
+    Starfish Hospitality - but the rows were attributed to an address they
+    did not come from, and a caller has no way to catch that.
+    """
+
+    @pytest.mark.parametrize(
+        ("canonical_id", "starts"),
+        [
+            ("cadr_2fa76af76a2a53d2909332ef8c0dba59", "8504 E Old Mangrove"),
+            ("cadr_419e02bbfcb156df9edce7f47f9148f7", "4220 E Old Mangrove"),
+        ],
+    )
+    def test_the_result_carries_the_address(
+        self, db_session, canonical_id: str, starts: str
+    ) -> None:
+        out = get_visit_history(
+            VisitHistoryRequest(canonical_id=canonical_id),
+            call_id="probe",
+            session=db_session,
+        )
+        assert out.address.startswith(starts)
+        assert out.result_rows() > 0
