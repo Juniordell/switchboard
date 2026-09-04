@@ -80,6 +80,30 @@ KEYTERMS = [
     "technician",
     "dispatch",
     "work order",
+    # The streets. A closed vocabulary - these are the most frequent street
+    # names in knowledge.canonical_addresses, measured, without the suffix
+    # so "Road" and "Rd" both land. Real calls turned "Old Mangrove" into
+    # "Old Monroe" three times and "Cormorant Reef" into "Car more red
+    # Reef"; a street the STT has never heard is a street it will invent.
+    # 32 terms in all, inside Deepgram's recommended 20-50.
+    "Old Mangrove",
+    "Bayfront",
+    "Cowrie Hollow",
+    "Cormorant Reef",
+    "Firebush Pointe",
+    "Banyan Ridge",
+    "Sandcastle Shores",
+    "Sandcastle Harbor",
+    "Marlin Hollow",
+    "Allamanda Ridge",
+    "Amberjack Cay",
+    "Amberjack Key",
+    "Seahorse Ridge",
+    "Keel Hollow",
+    "Grouper Ridge",
+    "Nautilus Landing",
+    "Coquina Glen",
+    "Coral Ridge",
 ]
 
 STT_MODEL = "deepgram/nova-3"
@@ -240,6 +264,12 @@ async def entrypoint(ctx: JobContext) -> None:
         # firing as well costs nothing.
         await asyncio.to_thread(_close_call, call_id)
 
+    # The span above has ended; now push it out. Spans are batched, and the
+    # job process exits right after this returns - without a flush the
+    # whole call's trace dies with it. Langfuse had every extract and
+    # review trace and not one call, which is how this was found.
+    await asyncio.to_thread(tracer_provider().force_flush, 5_000)
+
 
 async def _run_call(ctx: JobContext, call_id: str) -> None:
 
@@ -272,7 +302,13 @@ async def _run_call(ctx: JobContext, call_id: str) -> None:
                 "mode": "dynamic",
                 "min_delay": ENDPOINTING_MIN_DELAY,
                 "max_delay": ENDPOINTING_MAX_DELAY,
-            }
+            },
+            # The LLM already runs on interim transcripts by default; this
+            # lets TTS start too, so the first word is ready when the turn
+            # commits instead of after it. Costs a wasted synthesis when
+            # the caller keeps talking - cheap next to 7 s of dead air,
+            # which is what the real calls measured at the median.
+            "preemptive_generation": {"preemptive_tts": True},
         },
     )
 
