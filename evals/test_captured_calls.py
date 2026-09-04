@@ -210,3 +210,55 @@ class TestGarbageInAnArgumentSlotFailsSafe:
         assert result.level == 6
         # Never "no". Not knowing is not a denial - docs/AGENTS.md.
         assert result.covered is not WarrantyCoverage.NO
+
+
+class TestASpokenZeroIsAZero:
+    """Golden case `spoken_zero_oh`. Captured from the production rehearsal
+    on 2026-09-04.
+
+    The caller said "eighty five oh four East Old Mangrove". People say
+    "oh" for 0 inside a number, and `_ONES` knew only "zero", so the run
+    was split and 8504 normalised to "85 oh 4" - scoring 0.714 against the
+    right address instead of 1.0. The street name carried it that time. On
+    a street with near neighbours it would not have.
+
+    No vendor documents whether an STT emits "oh", "o" or "0" here, so the
+    word is handled rather than assumed away.
+    """
+
+    @pytest.mark.parametrize(
+        ("spoken", "expected"),
+        [
+            ("eighty five oh four", "8504"),
+            ("eighty five zero four", "8504"),
+            ("one oh three", "103"),
+            ("oh", "oh"),
+        ],
+    )
+    def test_oh_inside_a_number(self, spoken: str, expected: str) -> None:
+        assert normalize_street(spoken) == expected
+
+    def test_a_bare_oh_stays_a_word(self) -> None:
+        """The guard that makes the rest safe. "oh" only counts once a
+        numeric run is already open - otherwise an interjection would
+        invent a house number."""
+        assert normalize_street("oh and one more thing") == "oh and 1 more thing"
+        assert normalize_street("oh hi there") == "oh hi there"
+
+    def test_the_earlier_captured_cases_still_hold(self) -> None:
+        """Adding "oh" must not disturb the grouping fixed for call 1."""
+        assert normalize_street("thirteen sixty three") == "1363"
+        assert normalize_street("eighty nine harbor light shores") == (
+            "89 harbor light shores"
+        )
+
+    def test_the_rehearsal_address_resolves_exactly(self, db_session) -> None:
+        result = resolve_address(
+            db_session, "eighty five oh four east old mangrove road"
+        )
+        assert result.must_ask is False
+        top = result.candidates[0]
+        assert top.display_address.startswith("8504 E Old Mangrove Rd")
+        # Was 0.714 while "oh" split the run; the point of the fix is that
+        # a spoken zero costs nothing.
+        assert top.score == pytest.approx(1.0)
