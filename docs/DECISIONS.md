@@ -466,3 +466,42 @@ failing on purpose.
   and their **outstanding balance** unprompted. The instruction already said
   not to; `tool_choice="none"` is what makes it true. `_asked_for_something`
   errs towards silence because the two mistakes are not symmetric.
+
+## What twelve real calls taught — the line between structure and prose
+
+The single most useful result of testing against a real phone. Every defect
+found on a call was fixed one of two ways: by making the wrong thing
+**impossible**, or by writing a sentence asking the model not to do it.
+Across the last two rounds of three scripted calls each, the split is
+total:
+
+**Held on every call, without exception**
+
+| Guarantee | Mechanism | What it stopped |
+|---|---|---|
+| Service cannot write | `__init_subclass__` raises `TypeError` at import | a read-path agent holding `book_job` |
+| No other customer's property | `call_scope.in_scope`, checked in the tool bridge | reading the neighbour's visit history after the caller said "that's my neighbor" |
+| Nothing volunteered on entry | `generate_reply(tool_choice="none")` when nothing was asked | a balance read to someone who had only given a street name |
+| No write without a spoken confirmation | `spoken_confirmation` is a required field on the request | a booking on a hedged "whatever works" |
+| A tool cannot be called wrong | Pydantic on the request, and the rejection is logged | `book_job` with `customer_id="unknown"` — which then self-corrected |
+| Never a bare warranty yes/no | `WarrantyCoverage.WAS_COVERED` is its own value | "it **is** under warranty" spoken from a 2023 invoice |
+
+**Slipped at least once, after the instruction was added**
+
+| Rule, in prose | What happened anyway |
+|---|---|
+| "Name the address you actually looked up" | said "At Seahorse Ridge" while reporting its own address (no data crossed - a labelling failure, not a leak) |
+| "Do not tell them there was an error" | "there was an error while trying to confirm the booking", from a validation refusal |
+| "Today is <date>… every date is relative to that" | "Thursday the fourth" mid-conversation, while the tool call carried the right date |
+
+**The conclusion, and it is the reusable one:** a guarantee belongs in the
+type system or the call path, where the model cannot decline to apply it.
+A prompt is a preference, and it is worth exactly one measurement. Both
+halves of this table were measured, not assumed - which is the only reason
+the distinction can be stated at all.
+
+The three surviving prose rules are known limitations. Their structural
+form is the same in each case: build the sentence from the tool result
+rather than describe the result to the model and hope. That is a rewrite of
+how the agent speaks, not a tweak, and it was not started the day before
+delivery.
