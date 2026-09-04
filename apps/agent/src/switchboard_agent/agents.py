@@ -68,6 +68,70 @@ SERVICE_TOOLS = frozenset(READ_TOOLS)
 DISPATCH_TOOLS = frozenset(READ_TOOLS) | frozenset(WRITE_TOOLS)
 
 
+#: Words that mean the caller wants something looked up. Deliberately a
+#: small, closed list: the question is only ever "did they ask, or did they
+#: just say who they are", and the cost of the two mistakes is not equal -
+#: see `_asked_for_something`.
+_REQUEST_WORDS = (
+    "when",
+    "what",
+    "was",
+    "were",
+    "is",
+    "are",
+    "do",
+    "did",
+    "does",
+    "can",
+    "could",
+    "how",
+    "why",
+    "who",
+    "where",
+    "would",
+    "will",
+    "am i",
+    "i need",
+    "i want",
+    "schedule",
+    "book",
+    "cancel",
+    "move",
+    "reschedule",
+    "owe",
+    "balance",
+    "warranty",
+    "covered",
+    "appointment",
+    "come out",
+    "send",
+)
+
+
+def _asked_for_something(chat_ctx: ChatContext) -> bool:
+    """Has the caller actually asked for anything yet?
+
+    On a real call the caller gave an address, said "Yes" to confirm it, and
+    the agent immediately reported their schedule, their last visit **and
+    their outstanding balance** - three tool calls, no question. That is
+    both the slowest thing it does and the one place it hands out money
+    figures unprompted, to someone who has so far only said a street name.
+
+    The two mistakes are not symmetric. Reading a balance to someone who
+    did not ask is a disclosure; asking "what can I help with" of someone
+    who did ask costs one turn. So this errs towards silence: it wants a
+    real request word, not merely a long sentence.
+    """
+    for item in reversed(list(chat_ctx.items)):
+        if getattr(item, "role", None) != "user":
+            continue
+        text = (item.text_content or "").lower()
+        if "?" in text:
+            return True
+        return any(word in text for word in _REQUEST_WORDS)
+    return False
+
+
 class SwitchboardAgent(Agent):
     """Base for the three agents. Enforces the permissions boundary."""
 
@@ -135,6 +199,13 @@ Always:
 - Never say anything that starts with job_, cadr_, cus_, nte_ or inv_.
   Those are internal ids and mean nothing to a caller. Warranty evidence
   carries a `spoken` field - say that, and only that.
+- Answer the question that was asked, and stop. Do not add their balance,
+  their schedule or their visit history to an answer that was about
+  something else. Money in particular: say a balance only when they ask
+  for one.
+- Name the address you actually looked up. get_visit_history returns the
+  address its rows belong to - say that one, not the words you heard. A
+  caller cannot tell that you answered about a different street.
 - A note has no date of its own. Date it by the visit: "from the visit on
   14 June", never "a note from 14 June".
 - Warranty coverage `was_covered` is past tense and must be spoken that
@@ -252,13 +323,30 @@ they ask for one.
         A handoff the caller can hear is a bug; a handoff they cannot hear
         at all is a worse one.
         """
+        if not _asked_for_something(self.chat_ctx):
+            # Nothing was asked, so nothing may be looked up. `tool_choice`
+            # is the guarantee: the instruction below said the same thing
+            # and the model answered three questions anyway, one of them
+            # with a balance. It cannot reach a tool from here.
+            await self.session.generate_reply(
+                tool_choice="none",
+                instructions=(
+                    "Ask what you can help with, in one short sentence. Do "
+                    "not greet them again, do not mention any transfer, and "
+                    "do not tell them anything about their account, their "
+                    "visits or their schedule - they have not asked."
+                ),
+            )
+            return
+
         await self.session.generate_reply(
             instructions=(
                 "Answer the question they already asked, using the ids you "
-                "now have. Do not greet them again and do not mention any "
-                "transfer - as far as the caller knows this is the same "
-                "conversation. If they have not asked anything yet, ask what "
-                "you can help with."
+                "now have - that one question and nothing else. Do not "
+                "volunteer their balance, their schedule or their visit "
+                "history unless that is what they asked for. Do not greet "
+                "them again and do not mention any transfer: as far as the "
+                "caller knows this is the same conversation."
             )
         )
 
@@ -308,6 +396,11 @@ properly and lets the caller change their mind partway through.
 
 Slots come from find_availability and are proposals against an assumed
 working day, Monday to Saturday, 08:00 to 18:00. Say so when you offer one.
+
+If they ask for a time outside those hours, say the hours and offer the
+nearest one inside them. Do not transfer for this: a caller who says
+"3 AM" has misunderstood the hours, not asked for a person, and being
+handed to somebody over it is worse service than being told.
 
 Offer **two** times, not a list. This is a phone call: a caller cannot
 hold more than that, and reading a roster aloud took 26 seconds on a real
