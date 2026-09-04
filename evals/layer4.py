@@ -1,15 +1,25 @@
 #!/usr/bin/env python
 """Layer 4: p95 per tool class, against the budgets in ARCHITECTURE.md.
 
-    uv run pytest                              # produces the log
-    uv run python evals/layer4.py              # asserts against the baseline
-    uv run python evals/layer4.py --write-baseline
+    uv run pytest                                    # unit corpus
+    uv run python evals/layer4.py --corpus suite
+    uv run python evals/layer4.py --corpus suite --write-baseline
+
+    HARNESS_LIVE=1 uv run pytest evals/test_conversations.py
+    uv run python evals/layer4.py --corpus conversations
 
 It reads `evals/last_run_tool_calls.jsonl`, which the pytest session writes
 from the `switchboard_core.tools` logger. `docs/HARNESS.md`: Layer 4
 measures **the tool call log produced by the eval run that is executing**.
 Asserting against a borrowed corpus produces a number that means nothing, so
 this refuses to run against a log it did not just see written.
+
+**Baselines are per corpus.** The unit suite makes 66 SQL calls in tight
+succession; a conversation eval makes four, spaced by a model round trip.
+Their p95s are different numbers about different things, and the first
+version compared one against the other's baseline and reported an 86%
+regression that was nothing but the change of corpus. `--corpus` names
+which one, and the gate only ever compares like with like.
 
 The honest part
 ---------------
@@ -25,6 +35,10 @@ the numbers here say so rather than implying otherwise.
   - so its rows are the typed-error path and are reported, not budgeted.
 
 `SQL` and `write` are measured in full: they touch nothing but Postgres.
+
+A corpus with too few calls is judged on its **budget only**. The published
+40 ms is the contract; a 2% drift band over a dozen samples is noise
+wearing a number.
 
 The regression band has an absolute floor as well as a relative one, and
 the floor was measured rather than picked: run to run on an unchanged
@@ -61,6 +75,15 @@ MEASURED_FIELD = {"hybrid": "postgres_ms"}
 
 #: Regression band, matching the runner and `docs/HARNESS.md`.
 TOLERANCE = 0.02
+
+#: Below this many calls, drift is not checked at all - only the published
+#: budget is. **Measured**: the conversation corpus makes about a dozen SQL
+#: calls per run and its p95 moved across 10.89, 11.73, 12.48 and once
+#: 19.43 ms on an unchanged tree, because one slow call in twelve moves a
+#: 95th percentile a long way. A percentile from a sample this small is not
+#: something a 2% band can say anything about, and gating on it produces
+#: exactly the wolf-crying that T4.3 already had to remove once.
+MIN_SAMPLES_FOR_DRIFT = 30
 
 #: A growth must clear this many milliseconds as well as the relative
 #: band. **Measured, not chosen**: five consecutive suite runs against an
@@ -136,7 +159,7 @@ def report(measured: dict[str, dict]) -> None:
     print("web never reaches Tavily here - no key - so those rows are not budgeted.")
 
 
-def gate(measured: dict[str, dict]) -> int:
+def gate(measured: dict[str, dict], corpus: str) -> int:
     failures = []
 
     for kind, row in measured.items():
@@ -147,10 +170,20 @@ def gate(measured: dict[str, dict]) -> int:
             )
 
     if BASELINE.exists():
-        baseline = json.loads(BASELINE.read_text()).get("layer4", {})
+        stored = json.loads(BASELINE.read_text()).get("layer4", {})
+        # Older baselines were a bare {kind: row}; treat that as the suite.
+        baseline = stored.get(corpus, stored if corpus == "suite" else {})
+        if not baseline:
+            print(f"\nno baseline for corpus {corpus!r} yet; nothing to compare")
         for kind, row in measured.items():
             before = baseline.get(kind, {}).get("p95_ms")
             if before is None or before <= 0:
+                continue
+            if row["calls"] < MIN_SAMPLES_FOR_DRIFT:
+                print(
+                    f"  {kind}: {row['calls']} calls is too few to judge drift; "
+                    f"budget still enforced"
+                )
                 continue
             growth = (row["p95_ms"] - before) / before
             grew = row["p95_ms"] - before
@@ -174,22 +207,34 @@ def gate(measured: dict[str, dict]) -> int:
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--write-baseline", action="store_true")
+    parser.add_argument(
+        "--corpus",
+        default="suite",
+        help="which run produced the log: suite | conversations",
+    )
     args = parser.parse_args()
 
     measured = measure(load_calls())
     if not measured:
         sys.exit("the log contains no tool calls this build knows about")
+    print(f"corpus: {args.corpus}")
     report(measured)
 
     if args.write_baseline:
         existing = json.loads(BASELINE.read_text()) if BASELINE.exists() else {}
-        existing["layer4"] = measured
+        layer4 = existing.get("layer4", {})
+        # A baseline written before corpora existed is a bare {kind: row};
+        # it was the suite's, so name it that before adding the new one.
+        if layer4 and "suite" not in layer4 and "conversations" not in layer4:
+            layer4 = {"suite": layer4}
+        layer4[args.corpus] = measured
+        existing["layer4"] = layer4
         existing["measured_at"] = datetime.datetime.now(datetime.UTC).isoformat()
         BASELINE.write_text(json.dumps(existing, indent=2) + "\n")
         print(f"\nwrote {BASELINE.name}")
         return 0
 
-    return gate(measured)
+    return gate(measured, args.corpus)
 
 
 if __name__ == "__main__":
