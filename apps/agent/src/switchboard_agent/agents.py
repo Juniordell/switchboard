@@ -25,7 +25,9 @@ the write-holding agent in order to be handed to a person would invert the
 boundary it protects.
 """
 
+import datetime
 from typing import ClassVar
+from zoneinfo import ZoneInfo
 
 from livekit.agents import NOT_GIVEN, Agent, ChatContext, NotGivenOr, function_tool
 
@@ -37,6 +39,27 @@ from switchboard_core.tools import CONTROL_TOOLS, READ_TOOLS, WRITE_TOOLS
 #: no appointment - everything describing work done or booked is behind the
 #: handoff.
 TRIAGE_TOOLS = frozenset({"resolve_address", "resolve_customer"})
+
+#: Where the company is. Every "next week" a caller says is relative to
+#: this clock, and the model has no clock of its own.
+COMPANY_TZ = ZoneInfo("America/New_York")
+
+
+def _today_line(now: datetime.datetime | None = None) -> str:
+    """The one fact the model cannot know and every date depends on.
+
+    A real caller asked to "schedule for next week" and the model filled
+    find_availability with the second week of October 2023 - its training
+    data's idea of now. The tool refused the past, the model called it an
+    internal error, and the caller was transferred. Stated at the top of
+    every agent's instructions, in the company's timezone.
+    """
+    now = now or datetime.datetime.now(COMPANY_TZ)
+    return (
+        f"Today is {now:%A, %B %d, %Y}, {now:%I:%M %p} in Miami. Every date "
+        f"a caller says - tomorrow, next week, Monday - is relative to that.\n\n"
+    )
+
 
 #: Every read tool. Service handles most calls and holds no write.
 SERVICE_TOOLS = frozenset(READ_TOOLS)
@@ -83,7 +106,7 @@ class SwitchboardAgent(Agent):
         # there is no argument here that could carry a write tool into a
         # read-path agent.
         super().__init__(
-            instructions=instructions,
+            instructions=_today_line() + instructions,
             chat_ctx=chat_ctx,
             tools=build_tools_for(
                 self.NAME, sorted(self.TOOLS | frozenset(CONTROL_TOOLS)), call_id
@@ -109,6 +132,9 @@ Always:
   only - not the whole address, and not every field you collected.
 - Speak the JOB number. An invoice number is spoken only when citing an
   invoice, and is named as one.
+- Never say anything that starts with job_, cadr_, cus_, nte_ or inv_.
+  Those are internal ids and mean nothing to a caller. Warranty evidence
+  carries a `spoken` field - say that, and only that.
 - A note has no date of its own. Date it by the visit: "from the visit on
   14 June", never "a note from 14 June".
 - Warranty coverage `was_covered` is past tense and must be spoken that
