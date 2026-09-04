@@ -287,6 +287,29 @@ compares the workspace on disk against `uv.lock`, and a missing member makes
 the lock look stale — the build then fails pointing at the lock rather than at
 the absent manifest.
 
+## Where it runs
+
+Three hosts, chosen so nothing about the demo depends on this laptop being
+awake. `docs/DEPLOY.md` is the runbook; this is the shape.
+
+| Piece | Host | Note |
+|---|---|---|
+| Agent | LiveKit Cloud, `us-east` | `lk agent create` builds from source — a prebuilt image is Enterprise-only — so the `Dockerfile` sits at the repository **root**: the build context has to include `packages/core`, and `lk` looks for the file in the directory it is given |
+| API + dashboard | Fly, `iad`, one machine | One image, one origin: FastAPI answers `/api`, the built frontend answers everything else. That is why there is no CORS configuration anywhere in this repo |
+| Async worker | Fly, same image, second process | Drains `ops.async_jobs`. Without it the queue fills and nothing empties it |
+| Database | Neon, `us-east-2` | The agent sits next to it deliberately; from a laptop the same query costs ~150 ms of network |
+
+**Use the direct Neon endpoint, not the pooler.** The pooler is PgBouncer in
+transaction mode and it discards `LISTEN` **without an error** — the SSE feed
+simply never receives anything, and the dashboard shows a page that looks
+merely quiet. Measured both ways: pooled delivers nothing, direct delivers.
+
+**The dispatch rule names the agent, and a wrong name fails silently.** The
+call connects, the room is created, nobody joins, and no log anywhere
+complains, because neither the agent nor the API was ever involved. The two
+sides to compare are `lk sip dispatch list --json | grep -i agentName` and
+the `agent_name=` in `apps/agent/src/switchboard_agent/main.py`.
+
 ## Observability
 
 Instrumented to the OpenTelemetry GenAI semantic conventions; Langfuse is the
