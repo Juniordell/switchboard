@@ -253,16 +253,14 @@ async def entrypoint(ctx: JobContext) -> None:
         ctx.add_shutdown_callback(lambda: asyncio.to_thread(_close_call, call_id))
 
         await _run_call(ctx, call_id)
-
-        # Close here, not only in the shutdown callback. Shutdown runs while
-        # the process is being torn down, and two round trips to a remote
-        # database did not finish before it went away - two production calls
-        # ended with ended_at still null and no extract job queued, and the
-        # second left no log at all to say why. This runs while the process
-        # is unambiguously alive. `_close_call` is idempotent (the UPDATE is
-        # by key, the INSERT is guarded by NOT EXISTS), so the backstop
-        # firing as well costs nothing.
-        await asyncio.to_thread(_close_call, call_id)
+        # Nothing closes the call here. `_run_call` returns as soon as the
+        # session has started and greeted - the call itself runs on for as
+        # long as the caller stays - so a close at this point fires eight
+        # seconds into a seventy-second call. One production call had its
+        # one-turn greeting extracted and its real transcript never, because
+        # the guard above then saw an extract job and refused a second.
+        # The shutdown callback is the end of the call; that is where it
+        # closes, and the "closed call" log line is the proof it ran.
 
     # The span above has ended; now push it out. Spans are batched, and the
     # job process exits right after this returns - without a flush the
